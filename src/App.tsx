@@ -16,6 +16,18 @@ type RecordingState = "idle" | "recording" | "transcribing" | "cleaning";
 type Tab = "settings" | "history";
 type SttProvider = "openai" | "groq" | "gemini";
 type CleanupProvider = "anthropic" | "gemini";
+type Theme = "light" | "dark" | "auto";
+
+const THEME_STORAGE = "wispr_theme";
+
+function applyTheme(theme: Theme) {
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const resolved = theme === "auto" ? (prefersDark ? "dark" : "light") : theme;
+  document.documentElement.classList.toggle("light", resolved === "light");
+}
+
+// Apply theme before first render to avoid flash
+applyTheme((localStorage.getItem(THEME_STORAGE) as Theme) ?? "auto");
 
 const OPENAI_KEY_STORAGE = "wispr_openai_key";
 const ANTHROPIC_KEY_STORAGE = "wispr_anthropic_key";
@@ -134,6 +146,9 @@ function SettingsApp() {
   const [language, setLanguage] = useState("en");
   const [hotkey, setHotkey] = useState("ctrl_win");
   const [contextAwareness, setContextAwareness] = useState(true);
+  const [theme, setTheme] = useState<Theme>(
+    () => (localStorage.getItem(THEME_STORAGE) as Theme) ?? "auto"
+  );
 
   const [hasAnthropicKey, setHasAnthropicKey] = useState(
     !!(localStorage.getItem(ANTHROPIC_KEY_STORAGE)?.trim())
@@ -144,6 +159,15 @@ function SettingsApp() {
   const [hasGeminiKey, setHasGeminiKey] = useState(
     !!(localStorage.getItem(GEMINI_KEY_STORAGE)?.trim())
   );
+
+  useEffect(() => {
+    applyTheme(theme);
+    if (theme !== "auto") return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = () => applyTheme("auto");
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, [theme]);
 
   useEffect(() => {
     invoke<AppSettings>("get_settings").then((s) => {
@@ -205,6 +229,11 @@ function SettingsApp() {
     const next = !contextAwareness;
     setContextAwareness(next);
     invoke("set_context_awareness_enabled", { enabled: next });
+  }
+
+  function handleThemeChange(t: Theme) {
+    setTheme(t);
+    localStorage.setItem(THEME_STORAGE, t);
   }
 
   return (
@@ -377,6 +406,21 @@ function SettingsApp() {
               >
                 {contextAwareness ? "On" : "Off"}
               </button>
+            </div>
+
+            <div className="pref-row">
+              <span className="pref-label">Appearance</span>
+              <div className="provider-toggle">
+                {(["light", "dark", "auto"] as Theme[]).map((t) => (
+                  <button
+                    key={t}
+                    className={`provider-btn ${theme === t ? "active" : ""}`}
+                    onClick={() => handleThemeChange(t)}
+                  >
+                    {t.charAt(0).toUpperCase() + t.slice(1)}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="pref-row">
