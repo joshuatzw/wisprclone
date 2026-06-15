@@ -20,6 +20,7 @@ struct AppState {
     openai_key: Mutex<String>,
     anthropic_key: Mutex<String>,
     groq_key: Mutex<String>,
+    gemini_key: Mutex<String>,
     config: Mutex<config::AppConfig>,
     history: Mutex<Vec<history::HistoryEntry>>,
     app_data_dir: PathBuf,
@@ -42,6 +43,11 @@ fn set_groq_key(state: tauri::State<AppState>, key: String) {
 }
 
 #[tauri::command]
+fn set_gemini_key(state: tauri::State<AppState>, key: String) {
+    *state.gemini_key.lock().unwrap() = key;
+}
+
+#[tauri::command]
 fn set_cleanup_enabled(state: tauri::State<AppState>, enabled: bool) {
     let mut cfg = state.config.lock().unwrap();
     cfg.cleanup_enabled = enabled;
@@ -53,7 +59,18 @@ fn set_stt_provider(state: tauri::State<AppState>, provider: String) {
     let mut cfg = state.config.lock().unwrap();
     cfg.stt_provider = match provider.as_str() {
         "groq" => config::SttProvider::Groq,
+        "gemini" => config::SttProvider::Gemini,
         _ => config::SttProvider::Openai,
+    };
+    config::save(&state.app_data_dir, &cfg);
+}
+
+#[tauri::command]
+fn set_cleanup_provider(state: tauri::State<AppState>, provider: String) {
+    let mut cfg = state.config.lock().unwrap();
+    cfg.cleanup_provider = match provider.as_str() {
+        "gemini" => config::CleanupProvider::Gemini,
+        _ => config::CleanupProvider::Anthropic,
     };
     config::save(&state.app_data_dir, &cfg);
 }
@@ -74,7 +91,7 @@ fn set_context_awareness_enabled(state: tauri::State<AppState>, enabled: bool) {
 
 #[tauri::command]
 fn set_hotkey_combo(state: tauri::State<AppState>, hotkey: String) {
-    hotkey::reset(); // clear any in-progress recording state before switching
+    hotkey::reset();
     let combo = match hotkey.as_str() {
         "right_alt" => config::HotkeyCombo::RightAlt,
         "ctrl_shift" => config::HotkeyCombo::CtrlShift,
@@ -91,6 +108,7 @@ fn set_hotkey_combo(state: tauri::State<AppState>, hotkey: String) {
 struct Settings {
     cleanup_enabled: bool,
     stt_provider: String,
+    cleanup_provider: String,
     language: String,
     hotkey: String,
     context_awareness_enabled: bool,
@@ -102,6 +120,7 @@ fn get_settings(state: tauri::State<AppState>) -> Settings {
     Settings {
         cleanup_enabled: cfg.cleanup_enabled,
         stt_provider: cfg.stt_provider.as_str().to_string(),
+        cleanup_provider: cfg.cleanup_provider.as_str().to_string(),
         language: cfg.language.clone(),
         hotkey: cfg.hotkey.as_str().to_string(),
         context_awareness_enabled: cfg.context_awareness_enabled,
@@ -135,8 +154,10 @@ async fn process_recording(
     openai_key: String,
     anthropic_key: String,
     groq_key: String,
+    gemini_key: String,
     cleanup_enabled: bool,
     stt_provider: String,
+    cleanup_provider: String,
     language: String,
     app_context: context::AppContext,
 ) {
@@ -147,6 +168,7 @@ async fn process_recording(
         &wav_path,
         &openai_key,
         &groq_key,
+        &gemini_key,
         &stt_provider,
         &language,
     )
@@ -163,9 +185,22 @@ async fn process_recording(
     };
     println!("[wispr] Raw: {raw}");
 
-    let final_text = if cleanup_enabled && !anthropic_key.is_empty() {
+    let cleanup_key_available = match cleanup_provider.as_str() {
+        "gemini" => !gemini_key.is_empty(),
+        _ => !anthropic_key.is_empty(),
+    };
+
+    let final_text = if cleanup_enabled && cleanup_key_available {
         handle.emit("recording-state", "cleaning").ok();
-        match cleanup::cleanup_transcript(&raw, &anthropic_key, &app_context).await {
+        match cleanup::cleanup_transcript(
+            &raw,
+            &anthropic_key,
+            &gemini_key,
+            &cleanup_provider,
+            &app_context,
+        )
+        .await
+        {
             Ok(cleaned) if !cleaned.is_empty() => {
                 println!("[wispr] Cleaned: {cleaned}");
                 cleaned
@@ -210,8 +245,10 @@ pub fn run() {
             set_openai_key,
             set_anthropic_key,
             set_groq_key,
+            set_gemini_key,
             set_cleanup_enabled,
             set_stt_provider,
+            set_cleanup_provider,
             set_language,
             set_hotkey_combo,
             set_context_awareness_enabled,
@@ -235,7 +272,6 @@ pub fn run() {
             let history_entries = history::load(&app_data_dir);
             let app_config = config::load(&app_data_dir);
 
-            // Apply saved hotkey combo immediately
             hotkey::set_combo(app_config.hotkey.to_u8());
 
             app.manage(AppState {
@@ -243,6 +279,7 @@ pub fn run() {
                 openai_key: Mutex::new(String::new()),
                 anthropic_key: Mutex::new(String::new()),
                 groq_key: Mutex::new(String::new()),
+                gemini_key: Mutex::new(String::new()),
                 config: Mutex::new(app_config),
                 history: Mutex::new(history_entries),
                 app_data_dir,
@@ -290,7 +327,6 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // Position overlay at center-bottom of primary screen, above the taskbar
             if let Some(overlay) = app.get_webview_window("overlay") {
                 if let Ok(Some(monitor)) = overlay.primary_monitor() {
                     let phys = monitor.size();
@@ -314,7 +350,6 @@ pub fn run() {
                     if is_pressed {
                         let mut rec = state.recorder.lock().unwrap();
                         if !rec.is_recording() {
-                            // Snap the focused app before recording starts
                             *state.pending_context.lock().unwrap() =
                                 context::detect_focused_app();
                             match rec.start() {
@@ -338,21 +373,30 @@ pub fn run() {
                         continue;
                     }
 
+                    let stt_provider = state.config.lock().unwrap().stt_provider.as_str().to_string();
                     let openai_key = state.openai_key.lock().unwrap().clone();
-                    if openai_key.is_empty() {
+                    let gemini_key = state.gemini_key.lock().unwrap().clone();
+
+                    // Validate that the required key for the selected STT provider is present
+                    let stt_key_ok = match stt_provider.as_str() {
+                        "gemini" => !gemini_key.is_empty(),
+                        _ => !openai_key.is_empty(),
+                    };
+                    if !stt_key_ok {
+                        let provider_name = if stt_provider == "gemini" { "Gemini" } else { "OpenAI" };
                         handle.emit("recording-state", "idle").ok();
-                        handle.emit("error-message", "OpenAI API key not set").ok();
+                        handle.emit("error-message", format!("{provider_name} API key not set")).ok();
                         set_overlay_visible(&handle, false);
                         continue;
                     }
 
                     let anthropic_key = state.anthropic_key.lock().unwrap().clone();
                     let groq_key = state.groq_key.lock().unwrap().clone();
-                    let (cleanup_enabled, stt_provider, language, context_awareness_enabled) = {
+                    let (cleanup_enabled, cleanup_provider, language, context_awareness_enabled) = {
                         let cfg = state.config.lock().unwrap();
                         (
                             cfg.cleanup_enabled,
-                            cfg.stt_provider.as_str().to_string(),
+                            cfg.cleanup_provider.as_str().to_string(),
                             cfg.language.clone(),
                             cfg.context_awareness_enabled,
                         )
@@ -369,8 +413,10 @@ pub fn run() {
                         openai_key,
                         anthropic_key,
                         groq_key,
+                        gemini_key,
                         cleanup_enabled,
                         stt_provider,
+                        cleanup_provider,
                         language,
                         app_context,
                     ));

@@ -86,26 +86,41 @@ Rules:
 - Output only the cleaned text with no commentary or preamble
 - If the input is empty or completely unintelligible, output nothing";
 
-fn system_prompt(context: &AppContext) -> String {
-    let context_rules = match context {
+fn context_rules(context: &AppContext) -> &'static str {
+    match context {
         AppContext::Code => SYSTEM_CODE,
         AppContext::Chat => SYSTEM_CHAT,
         AppContext::Email => SYSTEM_EMAIL,
         AppContext::Terminal => SYSTEM_TERMINAL,
         AppContext::General => SYSTEM_GENERAL,
-    };
-    format!("{}\n\n{}", PREAMBLE, context_rules)
+    }
+}
+
+fn system_prompt(context: &AppContext) -> String {
+    format!("{}\n\n{}", PREAMBLE, context_rules(context))
 }
 
 pub async fn cleanup_transcript(
     raw: &str,
-    api_key: &str,
+    anthropic_key: &str,
+    gemini_key: &str,
+    provider: &str,
     context: &AppContext,
 ) -> Result<String, String> {
     if raw.trim().is_empty() {
         return Ok(String::new());
     }
+    match provider {
+        "gemini" => cleanup_gemini(raw, gemini_key, context).await,
+        _ => cleanup_anthropic(raw, anthropic_key, context).await,
+    }
+}
 
+async fn cleanup_anthropic(
+    raw: &str,
+    api_key: &str,
+    context: &AppContext,
+) -> Result<String, String> {
     let body = json!({
         "model": "claude-haiku-4-5",
         "max_tokens": 1024,
@@ -133,5 +148,42 @@ pub async fn cleanup_transcript(
     json["content"][0]["text"]
         .as_str()
         .ok_or_else(|| format!("Unexpected response: {json}"))
+        .map(|s| s.trim().to_string())
+}
+
+async fn cleanup_gemini(
+    raw: &str,
+    gemini_key: &str,
+    context: &AppContext,
+) -> Result<String, String> {
+    let body = json!({
+        "system_instruction": {
+            "parts": [{"text": system_prompt(context)}]
+        },
+        "contents": [{"role": "user", "parts": [{"text": raw}]}]
+    });
+
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}"
+    );
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("Gemini cleanup API {status}: {text}"));
+    }
+
+    let json: Value = response.json().await.map_err(|e| e.to_string())?;
+    json["candidates"][0]["content"]["parts"][0]["text"]
+        .as_str()
+        .ok_or_else(|| format!("Unexpected Gemini response: {json}"))
         .map(|s| s.trim().to_string())
 }

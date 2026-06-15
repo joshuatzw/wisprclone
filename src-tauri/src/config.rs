@@ -6,6 +6,7 @@ use std::path::Path;
 pub enum SttProvider {
     Openai,
     Groq,
+    Gemini,
 }
 
 impl Default for SttProvider {
@@ -19,6 +20,29 @@ impl SttProvider {
         match self {
             SttProvider::Openai => "openai",
             SttProvider::Groq => "groq",
+            SttProvider::Gemini => "gemini",
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum CleanupProvider {
+    Anthropic,
+    Gemini,
+}
+
+impl Default for CleanupProvider {
+    fn default() -> Self {
+        CleanupProvider::Anthropic
+    }
+}
+
+impl CleanupProvider {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CleanupProvider::Anthropic => "anthropic",
+            CleanupProvider::Gemini => "gemini",
         }
     }
 }
@@ -64,6 +88,8 @@ pub struct AppConfig {
     pub cleanup_enabled: bool,
     #[serde(default)]
     pub stt_provider: SttProvider,
+    #[serde(default)]
+    pub cleanup_provider: CleanupProvider,
     #[serde(default = "default_lang")]
     pub language: String,
     #[serde(default)]
@@ -85,6 +111,7 @@ impl Default for AppConfig {
         AppConfig {
             cleanup_enabled: true,
             stt_provider: SttProvider::Openai,
+            cleanup_provider: CleanupProvider::Anthropic,
             language: "en".to_string(),
             hotkey: HotkeyCombo::CtrlWin,
             context_awareness_enabled: true,
