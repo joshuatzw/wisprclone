@@ -1,4 +1,24 @@
-pub async fn send_to_whisper(wav_path: &std::path::Path, api_key: &str) -> Result<String, String> {
+pub async fn transcribe(
+    wav_path: &std::path::Path,
+    openai_key: &str,
+    groq_key: &str,
+    provider: &str,
+    language: &str,
+) -> Result<String, String> {
+    let (url, key, model) = if provider == "groq" && !groq_key.is_empty() {
+        (
+            "https://api.groq.com/openai/v1/audio/transcriptions",
+            groq_key,
+            "whisper-large-v3-turbo",
+        )
+    } else {
+        (
+            "https://api.openai.com/v1/audio/transcriptions",
+            openai_key,
+            "whisper-1",
+        )
+    };
+
     let wav_bytes = std::fs::read(wav_path).map_err(|e| e.to_string())?;
 
     let file_part = reqwest::multipart::Part::bytes(wav_bytes)
@@ -6,15 +26,19 @@ pub async fn send_to_whisper(wav_path: &std::path::Path, api_key: &str) -> Resul
         .mime_str("audio/wav")
         .map_err(|e| e.to_string())?;
 
-    let form = reqwest::multipart::Form::new()
+    let mut form = reqwest::multipart::Form::new()
         .part("file", file_part)
-        .text("model", "whisper-1")
-        .text("language", "en");
+        .text("model", model.to_string());
+
+    // Empty string or "auto" means let Whisper detect the language automatically
+    if !language.is_empty() && language != "auto" {
+        form = form.text("language", language.to_string());
+    }
 
     let client = reqwest::Client::new();
     let response = client
-        .post("https://api.openai.com/v1/audio/transcriptions")
-        .header("Authorization", format!("Bearer {api_key}"))
+        .post(url)
+        .header("Authorization", format!("Bearer {key}"))
         .multipart(form)
         .send()
         .await
@@ -23,7 +47,7 @@ pub async fn send_to_whisper(wav_path: &std::path::Path, api_key: &str) -> Resul
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        return Err(format!("Whisper API {status}: {body}"));
+        return Err(format!("Transcription API {status}: {body}"));
     }
 
     let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;

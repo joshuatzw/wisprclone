@@ -118,15 +118,19 @@ src-tauri/src/
 - Entries prepend live as new recordings complete
 - Per-entry delete; persisted across restarts in `%APPDATA%\com.joshuatan.wispr-clone\history.json`
 
-### 🔜 Phase 6 — Settings UI
-- Hotkey customisation
-- Toggle Claude cleanup on/off
-- Choose STT provider (OpenAI vs Groq for ~5× faster transcription)
-- Language selection
+### ✅ Phase 6 — Settings UI
+- Hotkey customisation: Ctrl+Win (default), Right Alt, Ctrl+Shift, or Ctrl+Alt
+- Toggle Claude cleanup on/off independently of the Anthropic key
+- Choose STT provider: OpenAI Whisper or Groq (`whisper-large-v3-turbo`, ~5× faster)
+- Language selection (13 languages + auto-detect)
+- Groq API key input; all preferences persisted to `config.json` in app data dir
 
-### 🔜 Phase 7 — Context awareness
-- Detect which app is currently focused
-- Adjust output style accordingly (e.g. casual for Slack, formal for email, code-safe for editors)
+### ✅ Phase 7 — Context awareness
+- Detects the focused app at the moment the hotkey is pressed (via Windows `GetForegroundWindow` + process name)
+- Classifies into five contexts: **Code** (VS Code, Cursor, JetBrains, etc.), **Chat** (Slack, Discord, Teams…), **Email** (Outlook, Thunderbird; Gmail/Outlook in browser), **Terminal** (Windows Terminal, PowerShell, cmd…), **General**
+- Each context uses a tailored Claude cleanup prompt: code-safe symbol expansion in editors, casual tone in chat apps, professional prose in email, raw command output in terminals
+- Browsers are sub-classified by window title (e.g. a Chrome tab showing "Gmail" maps to Email)
+- Togglable via the new **Context** switch in Settings (defaults on)
 
 ### 🔜 Phase 8 — Mobile
 - React Native app sharing API-call business logic

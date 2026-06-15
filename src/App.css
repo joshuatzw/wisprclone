@@ -23,9 +23,9 @@ html.overlay-window #root {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 20px;
-  padding: 32px;
+  padding: 24px 32px 32px;
 }
 
 .title {
@@ -358,4 +358,116 @@ html.overlay-window #root {
   87.5%  { background: #663399; box-shadow: 0 0 6px #663399; }
   93.75% { background: #6A5ACD; box-shadow: 0 0 6px #6A5ACD; }
   100%   { background: #7B68EE; box-shadow: 0 0 6px #7B68EE; }
+}
+
+/* Preferences section */
+
+.prefs-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 400px;
+}
+
+.pref-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pref-label {
+  font-size: 0.75rem;
+  color: #666;
+  flex-shrink: 0;
+}
+
+.provider-toggle {
+  display: flex;
+  gap: 4px;
+}
+
+.provider-btn {
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  color: #666;
+  padding: 5px 12px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.provider-btn:hover:not(:disabled) {
+  background: #333;
+  color: #ccc;
+}
+
+.provider-btn.active {
+  background: #1c3250;
+  border-color: #2a5080;
+  color: #5d9de0;
+}
+
+.provider-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.pref-select-wrap {
+  position: relative;
+}
+
+.pref-select-wrap::after {
+  content: "▾";
+  position: absolute;
+  right: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #555;
+  pointer-events: none;
+  font-size: 0.7rem;
+}
+
+.pref-select {
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #ccc;
+  padding: 5px 28px 5px 10px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: border-color 0.2s;
+}
+
+.pref-select:focus {
+  border-color: #555;
+}
+
+.toggle-btn {
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  padding: 5px 16px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  min-width: 48px;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.toggle-btn.on {
+  border-color: #3a6b3a;
+  color: #6fba6f;
+}
+
+.toggle-btn.off {
+  color: #555;
+}
+
+.toggle-btn:hover {
+  background: #333;
 }
