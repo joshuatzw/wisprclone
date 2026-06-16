@@ -283,36 +283,40 @@ function SettingsApp() {
           )}
 
           <div className="keys-section">
-            <ApiKeyInput
-              label="OpenAI key"
-              sublabel="(for Whisper STT)"
-              placeholder="sk-…"
-              storageKey={OPENAI_KEY_STORAGE}
-              command="set_openai_key"
-            />
-            <ApiKeyInput
-              label="Groq key"
-              sublabel="(optional — ~5× faster Whisper)"
-              placeholder="gsk_…"
-              storageKey={GROQ_KEY_STORAGE}
-              command="set_groq_key"
-            />
-            <ApiKeyInput
-              label="Gemini key"
-              sublabel="(STT + cleanup alternative)"
-              placeholder="AIza…"
-              storageKey={GEMINI_KEY_STORAGE}
-              command="set_gemini_key"
-              onSave={setHasGeminiKey}
-            />
-            <ApiKeyInput
-              label="Anthropic key"
-              sublabel="(optional — Claude cleanup)"
-              placeholder="sk-ant-…"
-              storageKey={ANTHROPIC_KEY_STORAGE}
-              command="set_anthropic_key"
-              onSave={setHasAnthropicKey}
-            />
+            {sttProvider === "openai" && (
+              <ApiKeyInput
+                label="OpenAI key"
+                placeholder="sk-…"
+                storageKey={OPENAI_KEY_STORAGE}
+                command="set_openai_key"
+              />
+            )}
+            {sttProvider === "groq" && (
+              <ApiKeyInput
+                label="Groq key"
+                placeholder="gsk_…"
+                storageKey={GROQ_KEY_STORAGE}
+                command="set_groq_key"
+              />
+            )}
+            {(sttProvider === "gemini" || cleanupSelection === "gemini") && (
+              <ApiKeyInput
+                label="Gemini key"
+                placeholder="AIza…"
+                storageKey={GEMINI_KEY_STORAGE}
+                command="set_gemini_key"
+                onSave={setHasGeminiKey}
+              />
+            )}
+            {cleanupSelection === "anthropic" && (
+              <ApiKeyInput
+                label="Anthropic key"
+                placeholder="sk-ant-…"
+                storageKey={ANTHROPIC_KEY_STORAGE}
+                command="set_anthropic_key"
+                onSave={setHasAnthropicKey}
+              />
+            )}
           </div>
 
           <div className="prefs-section">
