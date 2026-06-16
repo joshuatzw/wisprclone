@@ -11,6 +11,7 @@ mod context;
 mod history;
 mod hotkey;
 mod inject;
+mod normalize;
 mod transcribe;
 mod volume;
 
@@ -164,6 +165,7 @@ async fn process_recording(
 ) {
     let wav_path = std::env::temp_dir().join("wispr_recording.wav");
 
+    normalize::boost_quiet(&wav_path);
     handle.emit("recording-state", "transcribing").ok();
     let raw = match transcribe::transcribe(
         &wav_path,
