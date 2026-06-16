@@ -30,23 +30,14 @@ struct AppState {
 }
 
 #[tauri::command]
-fn set_openai_key(state: tauri::State<AppState>, key: String) {
-    *state.openai_key.lock().unwrap() = key;
-}
-
-#[tauri::command]
-fn set_anthropic_key(state: tauri::State<AppState>, key: String) {
-    *state.anthropic_key.lock().unwrap() = key;
-}
-
-#[tauri::command]
-fn set_groq_key(state: tauri::State<AppState>, key: String) {
-    *state.groq_key.lock().unwrap() = key;
-}
-
-#[tauri::command]
-fn set_gemini_key(state: tauri::State<AppState>, key: String) {
-    *state.gemini_key.lock().unwrap() = key;
+fn set_api_key(state: tauri::State<AppState>, name: String, key: String) {
+    match name.as_str() {
+        "openai"    => *state.openai_key.lock().unwrap() = key,
+        "anthropic" => *state.anthropic_key.lock().unwrap() = key,
+        "groq"      => *state.groq_key.lock().unwrap() = key,
+        "gemini"    => *state.gemini_key.lock().unwrap() = key,
+        _           => {}
+    }
 }
 
 #[tauri::command]
@@ -60,9 +51,9 @@ fn set_cleanup_enabled(state: tauri::State<AppState>, enabled: bool) {
 fn set_stt_provider(state: tauri::State<AppState>, provider: String) {
     let mut cfg = state.config.lock().unwrap();
     cfg.stt_provider = match provider.as_str() {
-        "groq" => config::SttProvider::Groq,
+        "groq"   => config::SttProvider::Groq,
         "gemini" => config::SttProvider::Gemini,
-        _ => config::SttProvider::Openai,
+        _        => config::SttProvider::Openai,
     };
     config::save(&state.app_data_dir, &cfg);
 }
@@ -72,7 +63,7 @@ fn set_cleanup_provider(state: tauri::State<AppState>, provider: String) {
     let mut cfg = state.config.lock().unwrap();
     cfg.cleanup_provider = match provider.as_str() {
         "gemini" => config::CleanupProvider::Gemini,
-        _ => config::CleanupProvider::Anthropic,
+        _        => config::CleanupProvider::Anthropic,
     };
     config::save(&state.app_data_dir, &cfg);
 }
@@ -95,10 +86,10 @@ fn set_context_awareness_enabled(state: tauri::State<AppState>, enabled: bool) {
 fn set_hotkey_combo(state: tauri::State<AppState>, hotkey: String) {
     hotkey::reset();
     let combo = match hotkey.as_str() {
-        "right_alt" => config::HotkeyCombo::RightAlt,
+        "right_alt"  => config::HotkeyCombo::RightAlt,
         "ctrl_shift" => config::HotkeyCombo::CtrlShift,
-        "ctrl_alt" => config::HotkeyCombo::CtrlAlt,
-        _ => config::HotkeyCombo::CtrlWin,
+        "ctrl_alt"   => config::HotkeyCombo::CtrlAlt,
+        _            => config::HotkeyCombo::CtrlWin,
     };
     hotkey::set_combo(combo.to_u8());
     let mut cfg = state.config.lock().unwrap();
@@ -143,16 +134,11 @@ fn delete_history_entry(state: tauri::State<AppState>, id: u64) {
 
 fn set_overlay_visible(app: &AppHandle, visible: bool) {
     if let Some(w) = app.get_webview_window("overlay") {
-        if visible {
-            w.show().ok();
-        } else {
-            w.hide().ok();
-        }
+        if visible { w.show().ok(); } else { w.hide().ok(); }
     }
 }
 
-async fn process_recording(
-    handle: AppHandle,
+struct RecordingJob {
     openai_key: String,
     anthropic_key: String,
     groq_key: String,
@@ -162,18 +148,21 @@ async fn process_recording(
     cleanup_provider: String,
     language: String,
     app_context: context::AppContext,
-) {
+}
+
+async fn process_recording(handle: AppHandle, job: RecordingJob) {
     let wav_path = std::env::temp_dir().join("wispr_recording.wav");
 
     normalize::boost_quiet(&wav_path);
     handle.emit("recording-state", "transcribing").ok();
+
     let raw = match transcribe::transcribe(
         &wav_path,
-        &openai_key,
-        &groq_key,
-        &gemini_key,
-        &stt_provider,
-        &language,
+        &job.openai_key,
+        &job.groq_key,
+        &job.gemini_key,
+        &job.stt_provider,
+        &job.language,
     )
     .await
     {
@@ -188,19 +177,19 @@ async fn process_recording(
     };
     println!("[wispr] Raw: {raw}");
 
-    let cleanup_key_available = match cleanup_provider.as_str() {
-        "gemini" => !gemini_key.is_empty(),
-        _ => !anthropic_key.is_empty(),
+    let cleanup_key_ok = match job.cleanup_provider.as_str() {
+        "gemini" => !job.gemini_key.is_empty(),
+        _        => !job.anthropic_key.is_empty(),
     };
 
-    let final_text = if cleanup_enabled && cleanup_key_available {
+    let final_text = if job.cleanup_enabled && cleanup_key_ok {
         handle.emit("recording-state", "cleaning").ok();
         match cleanup::cleanup_transcript(
             &raw,
-            &anthropic_key,
-            &gemini_key,
-            &cleanup_provider,
-            &app_context,
+            &job.anthropic_key,
+            &job.gemini_key,
+            &job.cleanup_provider,
+            &job.app_context,
         )
         .await
         {
@@ -229,7 +218,6 @@ async fn process_recording(
         &state.app_data_dir,
     );
     handle.emit("history-entry", entry).ok();
-
     handle.emit("recording-state", "idle").ok();
     handle.emit("transcript", final_text).ok();
     set_overlay_visible(&handle, false);
@@ -245,10 +233,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
-            set_openai_key,
-            set_anthropic_key,
-            set_groq_key,
-            set_gemini_key,
+            set_api_key,
             set_cleanup_enabled,
             set_stt_provider,
             set_cleanup_provider,
@@ -382,22 +367,19 @@ pub fn run() {
                     let openai_key = state.openai_key.lock().unwrap().clone();
                     let gemini_key = state.gemini_key.lock().unwrap().clone();
 
-                    // Validate that the required key for the selected STT provider is present
                     let stt_key_ok = match stt_provider.as_str() {
                         "gemini" => !gemini_key.is_empty(),
-                        _ => !openai_key.is_empty(),
+                        _        => !openai_key.is_empty(),
                     };
                     if !stt_key_ok {
-                        let provider_name = if stt_provider == "gemini" { "Gemini" } else { "OpenAI" };
+                        let provider = if stt_provider == "gemini" { "Gemini" } else { "OpenAI" };
                         handle.emit("recording-state", "idle").ok();
-                        handle.emit("error-message", format!("{provider_name} API key not set")).ok();
+                        handle.emit("error-message", format!("{provider} API key not set")).ok();
                         set_overlay_visible(&handle, false);
                         continue;
                     }
 
-                    let anthropic_key = state.anthropic_key.lock().unwrap().clone();
-                    let groq_key = state.groq_key.lock().unwrap().clone();
-                    let (cleanup_enabled, cleanup_provider, language, context_awareness_enabled) = {
+                    let (cleanup_enabled, cleanup_provider, language, context_enabled) = {
                         let cfg = state.config.lock().unwrap();
                         (
                             cfg.cleanup_enabled,
@@ -406,7 +388,7 @@ pub fn run() {
                             cfg.context_awareness_enabled,
                         )
                     };
-                    let app_context = if context_awareness_enabled {
+                    let app_context = if context_enabled {
                         state.pending_context.lock().unwrap().clone()
                     } else {
                         context::AppContext::General
@@ -415,15 +397,17 @@ pub fn run() {
 
                     tauri::async_runtime::spawn(process_recording(
                         handle.clone(),
-                        openai_key,
-                        anthropic_key,
-                        groq_key,
-                        gemini_key,
-                        cleanup_enabled,
-                        stt_provider,
-                        cleanup_provider,
-                        language,
-                        app_context,
+                        RecordingJob {
+                            openai_key,
+                            anthropic_key: state.anthropic_key.lock().unwrap().clone(),
+                            groq_key: state.groq_key.lock().unwrap().clone(),
+                            gemini_key,
+                            cleanup_enabled,
+                            stt_provider,
+                            cleanup_provider,
+                            language,
+                            app_context,
+                        },
                     ));
                 }
             });

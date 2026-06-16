@@ -1,5 +1,17 @@
 use base64::Engine as _;
 
+async fn checked_json(
+    response: reqwest::Response,
+    label: &str,
+) -> Result<serde_json::Value, String> {
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("{label} {status}: {text}"));
+    }
+    response.json().await.map_err(|e| e.to_string())
+}
+
 pub async fn transcribe(
     wav_path: &std::path::Path,
     openai_key: &str,
@@ -41,7 +53,6 @@ async fn transcribe_whisper(
     language: &str,
 ) -> Result<String, String> {
     let wav_bytes = std::fs::read(wav_path).map_err(|e| e.to_string())?;
-
     let file_part = reqwest::multipart::Part::bytes(wav_bytes)
         .file_name("recording.wav")
         .mime_str("audio/wav")
@@ -50,27 +61,21 @@ async fn transcribe_whisper(
     let mut form = reqwest::multipart::Form::new()
         .part("file", file_part)
         .text("model", model.to_string());
-
     if !language.is_empty() && language != "auto" {
         form = form.text("language", language.to_string());
     }
 
-    let client = reqwest::Client::new();
-    let response = client
-        .post(url)
-        .header("Authorization", format!("Bearer {key}"))
-        .multipart(form)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        return Err(format!("Transcription API {status}: {body}"));
-    }
-
-    let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+    let json = checked_json(
+        reqwest::Client::new()
+            .post(url)
+            .header("Authorization", format!("Bearer {key}"))
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?,
+        "Transcription API",
+    )
+    .await?;
     json["text"]
         .as_str()
         .ok_or_else(|| format!("Unexpected response: {json}"))
@@ -82,8 +87,8 @@ async fn transcribe_gemini(
     gemini_key: &str,
     language: &str,
 ) -> Result<String, String> {
-    let wav_bytes = std::fs::read(wav_path).map_err(|e| e.to_string())?;
-    let audio_b64 = base64::engine::general_purpose::STANDARD.encode(&wav_bytes);
+    let audio_b64 = base64::engine::general_purpose::STANDARD
+        .encode(std::fs::read(wav_path).map_err(|e| e.to_string())?);
 
     let lang_hint = if !language.is_empty() && language != "auto" {
         format!(" The spoken language is {language}.")
@@ -91,16 +96,14 @@ async fn transcribe_gemini(
         String::new()
     };
 
-    let prompt = format!(
-        "Transcribe this audio exactly as spoken. Output only the transcription — \
-         no commentary, no timestamps, no speaker labels.{lang_hint}"
-    );
-
     let body = serde_json::json!({
         "contents": [{
             "parts": [
                 {"inline_data": {"mime_type": "audio/wav", "data": audio_b64}},
-                {"text": prompt}
+                {"text": format!(
+                    "Transcribe this audio exactly as spoken. Output only the transcription — \
+                     no commentary, no timestamps, no speaker labels.{lang_hint}"
+                )}
             ]
         }]
     });
@@ -109,21 +112,16 @@ async fn transcribe_gemini(
         "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}"
     );
 
-    let client = reqwest::Client::new();
-    let response = client
-        .post(&url)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        return Err(format!("Gemini transcription API {status}: {text}"));
-    }
-
-    let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+    let json = checked_json(
+        reqwest::Client::new()
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?,
+        "Gemini transcription API",
+    )
+    .await?;
     json["candidates"][0]["content"]["parts"][0]["text"]
         .as_str()
         .ok_or_else(|| format!("Unexpected Gemini response: {json}"))

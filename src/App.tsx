@@ -77,11 +77,11 @@ interface ApiKeyInputProps {
   sublabel?: string;
   placeholder: string;
   storageKey: string;
-  command: string;
+  name: string;
   onSave?: (hasSavedKey: boolean) => void;
 }
 
-function ApiKeyInput({ label, sublabel, placeholder, storageKey, command, onSave }: ApiKeyInputProps) {
+function ApiKeyInput({ label, sublabel, placeholder, storageKey, name, onSave }: ApiKeyInputProps) {
   const [value, setValue] = useState("");
   const [saved, setSaved] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
@@ -91,7 +91,7 @@ function ApiKeyInput({ label, sublabel, placeholder, storageKey, command, onSave
     if (stored) {
       setValue(stored);
       setSaved(true);
-      invoke(command, { key: stored });
+      invoke("set_api_key", { name, key: stored });
       onSave?.(true);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -100,7 +100,7 @@ function ApiKeyInput({ label, sublabel, placeholder, storageKey, command, onSave
   function save() {
     const key = value.trim();
     localStorage.setItem(storageKey, key);
-    invoke(command, { key });
+    invoke("set_api_key", { name, key });
     setSaved(true);
     onSave?.(key.length > 0);
     ref.current?.blur();
@@ -288,7 +288,7 @@ function SettingsApp() {
                 label="OpenAI key"
                 placeholder="sk-…"
                 storageKey={OPENAI_KEY_STORAGE}
-                command="set_openai_key"
+                name="openai"
               />
             )}
             {sttProvider === "groq" && (
@@ -296,7 +296,7 @@ function SettingsApp() {
                 label="Groq key"
                 placeholder="gsk_…"
                 storageKey={GROQ_KEY_STORAGE}
-                command="set_groq_key"
+                name="groq"
               />
             )}
             {(sttProvider === "gemini" || cleanupSelection === "gemini") && (
@@ -304,7 +304,7 @@ function SettingsApp() {
                 label="Gemini key"
                 placeholder="AIza…"
                 storageKey={GEMINI_KEY_STORAGE}
-                command="set_gemini_key"
+                name="gemini"
                 onSave={setHasGeminiKey}
               />
             )}
@@ -313,7 +313,7 @@ function SettingsApp() {
                 label="Anthropic key"
                 placeholder="sk-ant-…"
                 storageKey={ANTHROPIC_KEY_STORAGE}
-                command="set_anthropic_key"
+                name="anthropic"
                 onSave={setHasAnthropicKey}
               />
             )}

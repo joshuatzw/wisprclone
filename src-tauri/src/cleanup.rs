@@ -89,18 +89,24 @@ Rules:
 - Output only the cleaned text with no commentary or preamble
 - If the input is empty or completely unintelligible, output nothing";
 
-fn context_rules(context: &AppContext) -> &'static str {
-    match context {
-        AppContext::Code => SYSTEM_CODE,
-        AppContext::Chat => SYSTEM_CHAT,
-        AppContext::Email => SYSTEM_EMAIL,
+fn system_prompt(context: &AppContext) -> String {
+    let rules = match context {
+        AppContext::Code     => SYSTEM_CODE,
+        AppContext::Chat     => SYSTEM_CHAT,
+        AppContext::Email    => SYSTEM_EMAIL,
         AppContext::Terminal => SYSTEM_TERMINAL,
-        AppContext::General => SYSTEM_GENERAL,
-    }
+        AppContext::General  => SYSTEM_GENERAL,
+    };
+    format!("{PREAMBLE}\n\n{rules}")
 }
 
-fn system_prompt(context: &AppContext) -> String {
-    format!("{}\n\n{}", PREAMBLE, context_rules(context))
+async fn checked_json(response: reqwest::Response, label: &str) -> Result<Value, String> {
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("{label} {status}: {text}"));
+    }
+    response.json().await.map_err(|e| e.to_string())
 }
 
 pub async fn cleanup_transcript(
@@ -115,7 +121,7 @@ pub async fn cleanup_transcript(
     }
     match provider {
         "gemini" => cleanup_gemini(raw, gemini_key, context).await,
-        _ => cleanup_anthropic(raw, anthropic_key, context).await,
+        _        => cleanup_anthropic(raw, anthropic_key, context).await,
     }
 }
 
@@ -128,26 +134,20 @@ async fn cleanup_anthropic(
         "model": "claude-haiku-4-5",
         "max_tokens": 1024,
         "system": system_prompt(context),
-        "messages": [{"role": "user", "content": format!("Transcript:\n{}", raw)}]
+        "messages": [{"role": "user", "content": format!("Transcript:\n{raw}")}]
     });
-
-    let client = reqwest::Client::new();
-    let response = client
-        .post("https://api.anthropic.com/v1/messages")
-        .header("x-api-key", api_key)
-        .header("anthropic-version", "2023-06-01")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        return Err(format!("Claude API {status}: {text}"));
-    }
-
-    let json: Value = response.json().await.map_err(|e| e.to_string())?;
+    let json = checked_json(
+        reqwest::Client::new()
+            .post("https://api.anthropic.com/v1/messages")
+            .header("x-api-key", api_key)
+            .header("anthropic-version", "2023-06-01")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?,
+        "Claude API",
+    )
+    .await?;
     json["content"][0]["text"]
         .as_str()
         .ok_or_else(|| format!("Unexpected response: {json}"))
@@ -160,31 +160,22 @@ async fn cleanup_gemini(
     context: &AppContext,
 ) -> Result<String, String> {
     let body = json!({
-        "system_instruction": {
-            "parts": [{"text": system_prompt(context)}]
-        },
-        "contents": [{"role": "user", "parts": [{"text": format!("Transcript:\n{}", raw)}]}]
+        "system_instruction": {"parts": [{"text": system_prompt(context)}]},
+        "contents": [{"role": "user", "parts": [{"text": format!("Transcript:\n{raw}")}]}]
     });
-
     let url = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gemini_key}"
     );
-
-    let client = reqwest::Client::new();
-    let response = client
-        .post(&url)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        return Err(format!("Gemini cleanup API {status}: {text}"));
-    }
-
-    let json: Value = response.json().await.map_err(|e| e.to_string())?;
+    let json = checked_json(
+        reqwest::Client::new()
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?,
+        "Gemini cleanup API",
+    )
+    .await?;
     json["candidates"][0]["content"]["parts"][0]["text"]
         .as_str()
         .ok_or_else(|| format!("Unexpected Gemini response: {json}"))
