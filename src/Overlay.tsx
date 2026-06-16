@@ -1,14 +1,14 @@
 import { useState, useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 
-type ActiveState = "recording" | "transcribing" | "cleaning";
+type OverlayState = "idle" | "recording" | "transcribing" | "cleaning";
 
 export function Overlay() {
-  const [state, setState] = useState<ActiveState>("recording");
+  const [state, setState] = useState<OverlayState>("idle");
 
   useEffect(() => {
     const unlisten = listen<string>("recording-state", (e) => {
-      if (e.payload !== "idle") setState(e.payload as ActiveState);
+      setState(e.payload as OverlayState);
     });
     return () => {
       unlisten.then((f) => f());
@@ -17,9 +17,7 @@ export function Overlay() {
 
   return (
     <div className="overlay-root">
-      <div className="overlay-pill">
-        <span className={`overlay-dot ${state}`} />
-      </div>
+      <div className={`overlay-pill ${state}`} />
     </div>
   );
 }

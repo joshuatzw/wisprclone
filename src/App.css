@@ -369,7 +369,7 @@ html.overlay-window #root {
   word-break: break-word;
 }
 
-/* ── Overlay dot ─────────────────────────────────────── */
+/* ── Overlay pill ─────────────────────────────────────── */
 
 .overlay-root {
   width: 100vw;
@@ -381,50 +381,43 @@ html.overlay-window #root {
 }
 
 .overlay-pill {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: rgba(18, 18, 18, 0.92);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: 42px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  box-shadow: none;
+  transition: background 0.4s ease, box-shadow 0.4s ease;
   user-select: none;
 }
 
-.overlay-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
+.overlay-pill.recording {
+  animation: overlay-pill-cycle 8s linear infinite;
 }
 
-.overlay-dot.recording {
-  animation: overlay-color-cycle 8s linear infinite;
+.overlay-pill.transcribing,
+.overlay-pill.cleaning {
+  background: #5d9de0;
+  box-shadow: 0 0 8px #5d9de0, 0 0 18px rgba(93, 157, 224, 0.4);
 }
 
-.overlay-dot.transcribing,
-.overlay-dot.cleaning {
-  background: var(--blue);
-  box-shadow: 0 0 6px var(--blue);
-}
-
-@keyframes overlay-color-cycle {
-  0%     { background: #E6E6FA; box-shadow: 0 0 6px #E6E6FA; }
-  6.25%  { background: #DDA0DD; box-shadow: 0 0 6px #DDA0DD; }
-  12.5%  { background: #EE82EE; box-shadow: 0 0 6px #EE82EE; }
-  18.75% { background: #DA70D6; box-shadow: 0 0 6px #DA70D6; }
-  25%    { background: #FF00FF; box-shadow: 0 0 6px #FF00FF; }
-  31.25% { background: #BA55D3; box-shadow: 0 0 6px #BA55D3; }
-  37.5%  { background: #9370DB; box-shadow: 0 0 6px #9370DB; }
-  43.75% { background: #8A2BE2; box-shadow: 0 0 6px #8A2BE2; }
-  50%    { background: #9400D3; box-shadow: 0 0 6px #9400D3; }
-  56.25% { background: #9932CC; box-shadow: 0 0 6px #9932CC; }
-  62.5%  { background: #8B008B; box-shadow: 0 0 6px #8B008B; }
-  68.75% { background: #800080; box-shadow: 0 0 6px #800080; }
-  75%    { background: #4B0082; box-shadow: 0 0 6px #4B0082; }
-  81.25% { background: #483D8B; box-shadow: 0 0 6px #483D8B; }
-  87.5%  { background: #663399; box-shadow: 0 0 6px #663399; }
-  93.75% { background: #6A5ACD; box-shadow: 0 0 6px #6A5ACD; }
-  100%   { background: #7B68EE; box-shadow: 0 0 6px #7B68EE; }
+@keyframes overlay-pill-cycle {
+  0%     { background: #E6E6FA; box-shadow: 0 0 8px #E6E6FA; }
+  6.25%  { background: #DDA0DD; box-shadow: 0 0 8px #DDA0DD; }
+  12.5%  { background: #EE82EE; box-shadow: 0 0 8px #EE82EE; }
+  18.75% { background: #DA70D6; box-shadow: 0 0 8px #DA70D6; }
+  25%    { background: #FF00FF; box-shadow: 0 0 8px #FF00FF; }
+  31.25% { background: #BA55D3; box-shadow: 0 0 8px #BA55D3; }
+  37.5%  { background: #9370DB; box-shadow: 0 0 8px #9370DB; }
+  43.75% { background: #8A2BE2; box-shadow: 0 0 8px #8A2BE2; }
+  50%    { background: #9400D3; box-shadow: 0 0 8px #9400D3; }
+  56.25% { background: #9932CC; box-shadow: 0 0 8px #9932CC; }
+  62.5%  { background: #8B008B; box-shadow: 0 0 8px #8B008B; }
+  68.75% { background: #800080; box-shadow: 0 0 8px #800080; }
+  75%    { background: #4B0082; box-shadow: 0 0 8px #4B0082; }
+  81.25% { background: #483D8B; box-shadow: 0 0 8px #483D8B; }
+  87.5%  { background: #663399; box-shadow: 0 0 8px #663399; }
+  93.75% { background: #6A5ACD; box-shadow: 0 0 8px #6A5ACD; }
+  100%   { background: #7B68EE; box-shadow: 0 0 8px #7B68EE; }
 }
 
 /* ── Preferences section ─────────────────────────────── */

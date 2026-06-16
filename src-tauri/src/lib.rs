@@ -132,11 +132,6 @@ fn delete_history_entry(state: tauri::State<AppState>, id: u64) {
     history::save(&state.app_data_dir, &entries);
 }
 
-fn set_overlay_visible(app: &AppHandle, visible: bool) {
-    if let Some(w) = app.get_webview_window("overlay") {
-        if visible { w.show().ok(); } else { w.hide().ok(); }
-    }
-}
 
 struct RecordingJob {
     openai_key: String,
@@ -171,7 +166,6 @@ async fn process_recording(handle: AppHandle, job: RecordingJob) {
             eprintln!("[wispr] Transcription error: {e}");
             handle.emit("recording-state", "idle").ok();
             handle.emit("error-message", e).ok();
-            set_overlay_visible(&handle, false);
             return;
         }
     };
@@ -220,7 +214,6 @@ async fn process_recording(handle: AppHandle, job: RecordingJob) {
     handle.emit("history-entry", entry).ok();
     handle.emit("recording-state", "idle").ok();
     handle.emit("transcript", final_text).ok();
-    set_overlay_visible(&handle, false);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -323,11 +316,12 @@ pub fn run() {
                     let lh = phys.height as f64 / scale;
                     overlay
                         .set_position(tauri::LogicalPosition::new(
-                            (lw - 44.0) / 2.0,
+                            (lw - 64.0) / 2.0,
                             lh - 44.0 - 56.0,
                         ))
                         .ok();
                 }
+                overlay.show().ok();
             }
 
             let handle = app.handle().clone();
@@ -345,7 +339,6 @@ pub fn run() {
                                     volume::duck();
                                     println!("[wispr] Recording started");
                                     handle.emit("recording-state", "recording").ok();
-                                    set_overlay_visible(&handle, true);
                                 }
                                 Err(e) => eprintln!("[wispr] Start error: {e}"),
                             }
@@ -359,23 +352,27 @@ pub fn run() {
                     if let Err(e) = state.recorder.lock().unwrap().stop_and_save(&wav_path) {
                         eprintln!("[wispr] Save error: {e}");
                         handle.emit("recording-state", "idle").ok();
-                        set_overlay_visible(&handle, false);
                         continue;
                     }
 
                     let stt_provider = state.config.lock().unwrap().stt_provider.as_str().to_string();
                     let openai_key = state.openai_key.lock().unwrap().clone();
+                    let groq_key = state.groq_key.lock().unwrap().clone();
                     let gemini_key = state.gemini_key.lock().unwrap().clone();
 
                     let stt_key_ok = match stt_provider.as_str() {
                         "gemini" => !gemini_key.is_empty(),
+                        "groq"   => !groq_key.is_empty(),
                         _        => !openai_key.is_empty(),
                     };
                     if !stt_key_ok {
-                        let provider = if stt_provider == "gemini" { "Gemini" } else { "OpenAI" };
+                        let provider = match stt_provider.as_str() {
+                            "gemini" => "Gemini",
+                            "groq"   => "Groq",
+                            _        => "OpenAI",
+                        };
                         handle.emit("recording-state", "idle").ok();
                         handle.emit("error-message", format!("{provider} API key not set")).ok();
-                        set_overlay_visible(&handle, false);
                         continue;
                     }
 
@@ -400,7 +397,7 @@ pub fn run() {
                         RecordingJob {
                             openai_key,
                             anthropic_key: state.anthropic_key.lock().unwrap().clone(),
-                            groq_key: state.groq_key.lock().unwrap().clone(),
+                            groq_key,
                             gemini_key,
                             cleanup_enabled,
                             stt_provider,
