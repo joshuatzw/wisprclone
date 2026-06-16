@@ -17,6 +17,10 @@ function formatTime(unix: number): string {
   return new Date(unix * 1000).toLocaleDateString();
 }
 
+function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
 export function History() {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [copiedId, setCopiedId] = useState<number | null>(null);
@@ -51,31 +55,36 @@ export function History() {
     );
   }
 
+  const totalWords = entries.reduce((sum, e) => sum + countWords(e.text), 0);
+
   return (
-    <div className="history-list">
-      {entries.map((entry) => (
-        <div key={entry.id} className="history-item">
-          <div className="history-meta">
-            <span className="history-time">{formatTime(entry.timestamp)}</span>
-            <div className="history-actions">
-              <button
-                className={`history-btn ${copiedId === entry.id ? "copied" : ""}`}
-                onClick={() => copy(entry)}
-              >
-                {copiedId === entry.id ? "Copied!" : "Copy"}
-              </button>
-              <button
-                className="history-btn delete"
-                onClick={() => remove(entry.id)}
-                aria-label="Delete"
-              >
-                ✕
-              </button>
+    <>
+      <p className="history-stat">words used: {totalWords.toLocaleString()}</p>
+      <div className="history-list">
+        {entries.map((entry) => (
+          <div key={entry.id} className="history-item">
+            <div className="history-meta">
+              <span className="history-time">{formatTime(entry.timestamp)}</span>
+              <div className="history-actions">
+                <button
+                  className={`history-btn ${copiedId === entry.id ? "copied" : ""}`}
+                  onClick={() => copy(entry)}
+                >
+                  {copiedId === entry.id ? "Copied!" : "Copy"}
+                </button>
+                <button
+                  className="history-btn delete"
+                  onClick={() => remove(entry.id)}
+                  aria-label="Delete"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
+            <p className="history-text">{entry.text}</p>
           </div>
-          <p className="history-text">{entry.text}</p>
-        </div>
-      ))}
-    </div>
+        ))}
+      </div>
+    </>
   );
 }

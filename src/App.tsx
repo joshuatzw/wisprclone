@@ -14,10 +14,25 @@ if (WINDOW_LABEL === "overlay") {
 
 type RecordingState = "idle" | "recording" | "transcribing" | "cleaning";
 type Tab = "settings" | "history";
+type SttProvider = "openai" | "groq" | "gemini";
+type CleanupSelection = "off" | "anthropic" | "gemini";
+type Theme = "light" | "dark" | "auto";
+
+const THEME_STORAGE = "wispr_theme";
+
+function applyTheme(theme: Theme) {
+  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const resolved = theme === "auto" ? (prefersDark ? "dark" : "light") : theme;
+  document.documentElement.classList.toggle("light", resolved === "light");
+}
+
+// Apply theme before first render to avoid flash
+applyTheme((localStorage.getItem(THEME_STORAGE) as Theme) ?? "auto");
 
 const OPENAI_KEY_STORAGE = "wispr_openai_key";
 const ANTHROPIC_KEY_STORAGE = "wispr_anthropic_key";
 const GROQ_KEY_STORAGE = "wispr_groq_key";
+const GEMINI_KEY_STORAGE = "wispr_gemini_key";
 
 const STATUS_LABEL: Record<Exclude<RecordingState, "idle">, string> = {
   recording: "Listening…",
@@ -51,6 +66,7 @@ const LANGUAGES = [
 interface AppSettings {
   cleanup_enabled: boolean;
   stt_provider: string;
+  cleanup_provider: string;
   language: string;
   hotkey: string;
   context_awareness_enabled: boolean;
@@ -61,11 +77,11 @@ interface ApiKeyInputProps {
   sublabel?: string;
   placeholder: string;
   storageKey: string;
-  command: string;
+  name: string;
   onSave?: (hasSavedKey: boolean) => void;
 }
 
-function ApiKeyInput({ label, sublabel, placeholder, storageKey, command, onSave }: ApiKeyInputProps) {
+function ApiKeyInput({ label, sublabel, placeholder, storageKey, name, onSave }: ApiKeyInputProps) {
   const [value, setValue] = useState("");
   const [saved, setSaved] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
@@ -75,7 +91,7 @@ function ApiKeyInput({ label, sublabel, placeholder, storageKey, command, onSave
     if (stored) {
       setValue(stored);
       setSaved(true);
-      invoke(command, { key: stored });
+      invoke("set_api_key", { name, key: stored });
       onSave?.(true);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -84,7 +100,7 @@ function ApiKeyInput({ label, sublabel, placeholder, storageKey, command, onSave
   function save() {
     const key = value.trim();
     localStorage.setItem(storageKey, key);
-    invoke(command, { key });
+    invoke("set_api_key", { name, key });
     setSaved(true);
     onSave?.(key.length > 0);
     ref.current?.blur();
@@ -124,25 +140,37 @@ function SettingsApp() {
   const [transcript, setTranscript] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Settings state — loaded from backend config on mount
-  const [cleanupEnabled, setCleanupEnabled] = useState(true);
-  const [sttProvider, setSttProvider] = useState<"openai" | "groq">("openai");
+  const [sttProvider, setSttProvider] = useState<SttProvider>("openai");
+  const [cleanupSelection, setCleanupSelection] = useState<CleanupSelection>("anthropic");
   const [language, setLanguage] = useState("en");
   const [hotkey, setHotkey] = useState("ctrl_win");
   const [contextAwareness, setContextAwareness] = useState(true);
+  const [theme, setTheme] = useState<Theme>(
+    () => (localStorage.getItem(THEME_STORAGE) as Theme) ?? "auto"
+  );
 
-  // Derived from localStorage (keys are stored there, pushed to backend on init)
   const [hasAnthropicKey, setHasAnthropicKey] = useState(
     !!(localStorage.getItem(ANTHROPIC_KEY_STORAGE)?.trim())
   );
-  const [hasGroqKey, setHasGroqKey] = useState(
-    !!(localStorage.getItem(GROQ_KEY_STORAGE)?.trim())
+  const [hasGeminiKey, setHasGeminiKey] = useState(
+    !!(localStorage.getItem(GEMINI_KEY_STORAGE)?.trim())
   );
 
   useEffect(() => {
+    applyTheme(theme);
+    if (theme !== "auto") return;
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = () => applyTheme("auto");
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, [theme]);
+
+  useEffect(() => {
     invoke<AppSettings>("get_settings").then((s) => {
-      setCleanupEnabled(s.cleanup_enabled);
-      setSttProvider(s.stt_provider as "openai" | "groq");
+      setSttProvider(s.stt_provider as SttProvider);
+      setCleanupSelection(
+        s.cleanup_enabled ? (s.cleanup_provider as CleanupSelection) : "off"
+      );
       setLanguage(s.language);
       setHotkey(s.hotkey);
       setContextAwareness(s.context_awareness_enabled);
@@ -160,17 +188,29 @@ function SettingsApp() {
   }, []);
 
   const isProcessing = recordingState === "transcribing" || recordingState === "cleaning";
-  const effectiveCleanup = cleanupEnabled && hasAnthropicKey;
 
-  function handleCleanupToggle() {
-    const next = !cleanupEnabled;
-    setCleanupEnabled(next);
-    invoke("set_cleanup_enabled", { enabled: next });
-  }
+  const cleanupKeyAvailable =
+    cleanupSelection === "gemini" ? hasGeminiKey :
+    cleanupSelection === "anthropic" ? hasAnthropicKey : false;
+  const effectiveCleanup = cleanupSelection !== "off" && cleanupKeyAvailable;
 
-  function handleProviderChange(provider: "openai" | "groq") {
+  const cleanupBadgeLabel = effectiveCleanup
+    ? `${cleanupSelection === "gemini" ? "Gemini" : "Claude"} cleanup: on`
+    : "cleanup: off";
+
+  function handleSttProviderChange(provider: SttProvider) {
     setSttProvider(provider);
     invoke("set_stt_provider", { provider });
+  }
+
+  function handleCleanupChange(value: string) {
+    setCleanupSelection(value as CleanupSelection);
+    if (value === "off") {
+      invoke("set_cleanup_enabled", { enabled: false });
+    } else {
+      invoke("set_cleanup_enabled", { enabled: true });
+      invoke("set_cleanup_provider", { provider: value });
+    }
   }
 
   function handleLanguageChange(lang: string) {
@@ -187,6 +227,11 @@ function SettingsApp() {
     const next = !contextAwareness;
     setContextAwareness(next);
     invoke("set_context_awareness_enabled", { enabled: next });
+  }
+
+  function handleThemeChange(t: Theme) {
+    setTheme(t);
+    localStorage.setItem(THEME_STORAGE, t);
   }
 
   return (
@@ -228,7 +273,7 @@ function SettingsApp() {
           </p>
 
           <p className={`cleanup-badge ${effectiveCleanup ? "on" : "off"}`}>
-            {effectiveCleanup ? "Claude cleanup: on" : "Claude cleanup: off"}
+            {cleanupBadgeLabel}
           </p>
 
           {errorMsg && <p className="error-msg">{errorMsg}</p>}
@@ -238,48 +283,55 @@ function SettingsApp() {
           )}
 
           <div className="keys-section">
-            <ApiKeyInput
-              label="OpenAI key"
-              placeholder="sk-…"
-              storageKey={OPENAI_KEY_STORAGE}
-              command="set_openai_key"
-            />
-            <ApiKeyInput
-              label="Anthropic key"
-              sublabel="(optional — enables cleanup)"
-              placeholder="sk-ant-…"
-              storageKey={ANTHROPIC_KEY_STORAGE}
-              command="set_anthropic_key"
-              onSave={setHasAnthropicKey}
-            />
-            <ApiKeyInput
-              label="Groq key"
-              sublabel="(optional — ~5× faster transcription)"
-              placeholder="gsk_…"
-              storageKey={GROQ_KEY_STORAGE}
-              command="set_groq_key"
-              onSave={setHasGroqKey}
-            />
+            {sttProvider === "openai" && (
+              <ApiKeyInput
+                label="OpenAI key"
+                placeholder="sk-…"
+                storageKey={OPENAI_KEY_STORAGE}
+                name="openai"
+              />
+            )}
+            {sttProvider === "groq" && (
+              <ApiKeyInput
+                label="Groq key"
+                placeholder="gsk_…"
+                storageKey={GROQ_KEY_STORAGE}
+                name="groq"
+              />
+            )}
+            {(sttProvider === "gemini" || cleanupSelection === "gemini") && (
+              <ApiKeyInput
+                label="Gemini key"
+                placeholder="AIza…"
+                storageKey={GEMINI_KEY_STORAGE}
+                name="gemini"
+                onSave={setHasGeminiKey}
+              />
+            )}
+            {cleanupSelection === "anthropic" && (
+              <ApiKeyInput
+                label="Anthropic key"
+                placeholder="sk-ant-…"
+                storageKey={ANTHROPIC_KEY_STORAGE}
+                name="anthropic"
+                onSave={setHasAnthropicKey}
+              />
+            )}
           </div>
 
           <div className="prefs-section">
             <div className="pref-row">
               <span className="pref-label">Transcription</span>
-              <div className="provider-toggle">
-                <button
-                  className={`provider-btn ${sttProvider === "openai" ? "active" : ""}`}
-                  onClick={() => handleProviderChange("openai")}
+              <div className="pref-select-wrap">
+                <select
+                  className="pref-select"
+                  value={sttProvider}
+                  onChange={(e) => handleSttProviderChange(e.target.value as SttProvider)}
                 >
-                  OpenAI
-                </button>
-                <button
-                  className={`provider-btn ${sttProvider === "groq" ? "active" : ""}`}
-                  onClick={() => handleProviderChange("groq")}
-                  disabled={!hasGroqKey}
-                  title={hasGroqKey ? "" : "Add Groq API key above to enable"}
-                >
-                  Groq
-                </button>
+                  <option value="openai">OpenAI Whisper</option>
+                  <option value="groq">Groq Whisper</option>
+                  <option value="gemini">Gemini</option>
+                </select>
               </div>
             </div>
 
@@ -300,13 +352,17 @@ function SettingsApp() {
 
             <div className="pref-row">
               <span className="pref-label">Cleanup</span>
-              <button
-                className={`toggle-btn ${cleanupEnabled ? "on" : "off"}`}
-                onClick={handleCleanupToggle}
-                title={!hasAnthropicKey ? "Set Anthropic key above to activate" : ""}
-              >
-                {cleanupEnabled ? "On" : "Off"}
-              </button>
+              <div className="pref-select-wrap">
+                <select
+                  className="pref-select"
+                  value={cleanupSelection}
+                  onChange={(e) => handleCleanupChange(e.target.value)}
+                >
+                  <option value="off">Off</option>
+                  <option value="anthropic">Claude (Anthropic)</option>
+                  <option value="gemini">Gemini</option>
+                </select>
+              </div>
             </div>
 
             <div className="pref-row">
@@ -318,6 +374,21 @@ function SettingsApp() {
               >
                 {contextAwareness ? "On" : "Off"}
               </button>
+            </div>
+
+            <div className="pref-row">
+              <span className="pref-label">Appearance</span>
+              <div className="provider-toggle">
+                {(["light", "dark", "auto"] as Theme[]).map((t) => (
+                  <button
+                    key={t}
+                    className={`provider-btn ${theme === t ? "active" : ""}`}
+                    onClick={() => handleThemeChange(t)}
+                  >
+                    {t.charAt(0).toUpperCase() + t.slice(1)}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="pref-row">

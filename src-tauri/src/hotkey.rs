@@ -54,132 +54,82 @@ pub fn reset() {
     WIN_DOWN.store(false, Ordering::SeqCst);
 }
 
+fn send_press() {
+    if WIN_DOWN
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+    {
+        if let Some(tx) = TX.get() {
+            tx.try_send(true).ok();
+        }
+    }
+}
+
+fn send_release() {
+    if WIN_DOWN
+        .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+    {
+        if let Some(tx) = TX.get() {
+            tx.try_send(false).ok();
+        }
+    }
+}
+
 unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code >= 0 {
         let kb = &*(lparam as *const KBDLLHOOKSTRUCT);
         let vk = kb.vkCode;
         let is_down = matches!(wparam as u32, WM_KEYDOWN | WM_SYSKEYDOWN);
         let is_up = matches!(wparam as u32, WM_KEYUP | WM_SYSKEYUP);
+        let ctrl_held = || GetAsyncKeyState(VK_CONTROL as i32) as u16 & 0x8000 != 0;
 
         match COMBO.load(Ordering::Relaxed) {
             0 => {
                 // Ctrl+Win
                 let is_win = vk == VK_LWIN as u32 || vk == VK_RWIN as u32;
                 let is_ctrl = vk == VK_LCONTROL as u32 || vk == VK_RCONTROL as u32;
-
-                if is_win && is_down {
-                    let ctrl_held = GetAsyncKeyState(VK_CONTROL as i32) as u16 & 0x8000 != 0;
-                    if ctrl_held {
-                        if WIN_DOWN
-                            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                            .is_ok()
-                        {
-                            if let Some(tx) = TX.get() {
-                                tx.try_send(true).ok();
-                            }
-                        }
-                        return 1; // suppress Win key → no Start menu
-                    }
+                if is_down && is_win && ctrl_held() {
+                    send_press();
+                    return 1; // suppress Win key → no Start menu
                 }
                 if is_up && (is_win || is_ctrl) && WIN_DOWN.load(Ordering::SeqCst) {
-                    if WIN_DOWN
-                        .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
-                        .is_ok()
-                    {
-                        if let Some(tx) = TX.get() {
-                            tx.try_send(false).ok();
-                        }
-                    }
+                    send_release();
                     if is_win {
                         return 1; // suppress Win key release too
                     }
                 }
             }
             1 => {
-                // Right Alt held alone (not AltGr)
+                // Right Alt held alone (AltGr on European layouts synthesises LCtrl+RAlt — exclude it)
                 let is_ralt = vk == VK_RMENU as u32;
-
-                if is_ralt && is_down {
-                    // AltGr on European layouts synthesises LCtrl+RAlt — exclude it
-                    let ctrl_held = GetAsyncKeyState(VK_CONTROL as i32) as u16 & 0x8000 != 0;
-                    if !ctrl_held {
-                        if WIN_DOWN
-                            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                            .is_ok()
-                        {
-                            if let Some(tx) = TX.get() {
-                                tx.try_send(true).ok();
-                            }
-                        }
-                    }
+                if is_down && is_ralt && !ctrl_held() {
+                    send_press();
                 }
-                if is_ralt && is_up && WIN_DOWN.load(Ordering::SeqCst) {
-                    if WIN_DOWN
-                        .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
-                        .is_ok()
-                    {
-                        if let Some(tx) = TX.get() {
-                            tx.try_send(false).ok();
-                        }
-                    }
+                if is_up && is_ralt {
+                    send_release();
                 }
             }
             2 => {
                 // Ctrl+Shift
                 let is_shift = vk == VK_LSHIFT as u32 || vk == VK_RSHIFT as u32;
                 let is_ctrl = vk == VK_LCONTROL as u32 || vk == VK_RCONTROL as u32;
-
-                if is_shift && is_down {
-                    let ctrl_held = GetAsyncKeyState(VK_CONTROL as i32) as u16 & 0x8000 != 0;
-                    if ctrl_held {
-                        if WIN_DOWN
-                            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                            .is_ok()
-                        {
-                            if let Some(tx) = TX.get() {
-                                tx.try_send(true).ok();
-                            }
-                        }
-                    }
+                if is_down && is_shift && ctrl_held() {
+                    send_press();
                 }
-                if is_up && (is_shift || is_ctrl) && WIN_DOWN.load(Ordering::SeqCst) {
-                    if WIN_DOWN
-                        .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
-                        .is_ok()
-                    {
-                        if let Some(tx) = TX.get() {
-                            tx.try_send(false).ok();
-                        }
-                    }
+                if is_up && (is_shift || is_ctrl) {
+                    send_release();
                 }
             }
             3 => {
                 // Ctrl+Alt
                 let is_alt = vk == VK_LMENU as u32 || vk == VK_RMENU as u32;
                 let is_ctrl = vk == VK_LCONTROL as u32 || vk == VK_RCONTROL as u32;
-
-                if is_alt && is_down {
-                    let ctrl_held = GetAsyncKeyState(VK_CONTROL as i32) as u16 & 0x8000 != 0;
-                    if ctrl_held {
-                        if WIN_DOWN
-                            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                            .is_ok()
-                        {
-                            if let Some(tx) = TX.get() {
-                                tx.try_send(true).ok();
-                            }
-                        }
-                    }
+                if is_down && is_alt && ctrl_held() {
+                    send_press();
                 }
-                if is_up && (is_alt || is_ctrl) && WIN_DOWN.load(Ordering::SeqCst) {
-                    if WIN_DOWN
-                        .compare_exchange(true, false, Ordering::SeqCst, Ordering::SeqCst)
-                        .is_ok()
-                    {
-                        if let Some(tx) = TX.get() {
-                            tx.try_send(false).ok();
-                        }
-                    }
+                if is_up && (is_alt || is_ctrl) {
+                    send_release();
                 }
             }
             _ => {}
