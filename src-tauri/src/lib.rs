@@ -12,6 +12,7 @@ mod history;
 mod hotkey;
 mod inject;
 mod transcribe;
+mod volume;
 
 use audio::AudioRecorder;
 
@@ -354,6 +355,7 @@ pub fn run() {
                                 context::detect_focused_app();
                             match rec.start() {
                                 Ok(()) => {
+                                    volume::duck();
                                     println!("[wispr] Recording started");
                                     handle.emit("recording-state", "recording").ok();
                                     set_overlay_visible(&handle, true);
@@ -364,7 +366,8 @@ pub fn run() {
                         continue;
                     }
 
-                    // Key released — stop and process
+                    // Key released — restore audio immediately, then process
+                    volume::unduck();
                     let wav_path = std::env::temp_dir().join("wispr_recording.wav");
                     if let Err(e) = state.recorder.lock().unwrap().stop_and_save(&wav_path) {
                         eprintln!("[wispr] Save error: {e}");
