@@ -1,17 +1,17 @@
 /// Halve the volume of all audio render sessions (called when recording starts).
 pub fn duck() {
     #[cfg(windows)]
-    scale_sessions(0.5);
+    scale_sessions(0.1);
 }
 
 /// Restore audio render sessions to their pre-duck levels (called when recording stops).
 pub fn unduck() {
     #[cfg(windows)]
-    scale_sessions(2.0);
+    scale_sessions(10.0);
 }
 
 /// Multiply every render session's per-session volume by `factor`, clamped to [0, 1].
-/// duck(0.5) then unduck(2.0) is a perfect round-trip provided nobody adjusts
+/// duck(0.1) then unduck(10.0) is a perfect round-trip provided nobody adjusts
 /// their volume in between — acceptable for a push-to-talk use case.
 #[cfg(windows)]
 fn scale_sessions(factor: f32) {
