@@ -15,7 +15,7 @@ if (WINDOW_LABEL === "overlay") {
 type RecordingState = "idle" | "recording" | "transcribing" | "cleaning";
 type Tab = "settings" | "history";
 type SttProvider = "openai" | "groq" | "gemini";
-type CleanupProvider = "anthropic" | "gemini";
+type CleanupSelection = "off" | "anthropic" | "gemini";
 type Theme = "light" | "dark" | "auto";
 
 const THEME_STORAGE = "wispr_theme";
@@ -140,9 +140,8 @@ function SettingsApp() {
   const [transcript, setTranscript] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const [cleanupEnabled, setCleanupEnabled] = useState(true);
   const [sttProvider, setSttProvider] = useState<SttProvider>("openai");
-  const [cleanupProvider, setCleanupProvider] = useState<CleanupProvider>("anthropic");
+  const [cleanupSelection, setCleanupSelection] = useState<CleanupSelection>("anthropic");
   const [language, setLanguage] = useState("en");
   const [hotkey, setHotkey] = useState("ctrl_win");
   const [contextAwareness, setContextAwareness] = useState(true);
@@ -152,9 +151,6 @@ function SettingsApp() {
 
   const [hasAnthropicKey, setHasAnthropicKey] = useState(
     !!(localStorage.getItem(ANTHROPIC_KEY_STORAGE)?.trim())
-  );
-  const [hasGroqKey, setHasGroqKey] = useState(
-    !!(localStorage.getItem(GROQ_KEY_STORAGE)?.trim())
   );
   const [hasGeminiKey, setHasGeminiKey] = useState(
     !!(localStorage.getItem(GEMINI_KEY_STORAGE)?.trim())
@@ -171,9 +167,10 @@ function SettingsApp() {
 
   useEffect(() => {
     invoke<AppSettings>("get_settings").then((s) => {
-      setCleanupEnabled(s.cleanup_enabled);
       setSttProvider(s.stt_provider as SttProvider);
-      setCleanupProvider(s.cleanup_provider as CleanupProvider);
+      setCleanupSelection(
+        s.cleanup_enabled ? (s.cleanup_provider as CleanupSelection) : "off"
+      );
       setLanguage(s.language);
       setHotkey(s.hotkey);
       setContextAwareness(s.context_awareness_enabled);
@@ -192,27 +189,28 @@ function SettingsApp() {
 
   const isProcessing = recordingState === "transcribing" || recordingState === "cleaning";
 
-  const cleanupKeyAvailable = cleanupProvider === "gemini" ? hasGeminiKey : hasAnthropicKey;
-  const effectiveCleanup = cleanupEnabled && cleanupKeyAvailable;
+  const cleanupKeyAvailable =
+    cleanupSelection === "gemini" ? hasGeminiKey :
+    cleanupSelection === "anthropic" ? hasAnthropicKey : false;
+  const effectiveCleanup = cleanupSelection !== "off" && cleanupKeyAvailable;
 
   const cleanupBadgeLabel = effectiveCleanup
-    ? `${cleanupProvider === "gemini" ? "Gemini" : "Claude"} cleanup: on`
+    ? `${cleanupSelection === "gemini" ? "Gemini" : "Claude"} cleanup: on`
     : "cleanup: off";
-
-  function handleCleanupToggle() {
-    const next = !cleanupEnabled;
-    setCleanupEnabled(next);
-    invoke("set_cleanup_enabled", { enabled: next });
-  }
 
   function handleSttProviderChange(provider: SttProvider) {
     setSttProvider(provider);
     invoke("set_stt_provider", { provider });
   }
 
-  function handleCleanupProviderChange(provider: CleanupProvider) {
-    setCleanupProvider(provider);
-    invoke("set_cleanup_provider", { provider });
+  function handleCleanupChange(value: string) {
+    setCleanupSelection(value as CleanupSelection);
+    if (value === "off") {
+      invoke("set_cleanup_enabled", { enabled: false });
+    } else {
+      invoke("set_cleanup_enabled", { enabled: true });
+      invoke("set_cleanup_provider", { provider: value });
+    }
   }
 
   function handleLanguageChange(lang: string) {
@@ -298,7 +296,6 @@ function SettingsApp() {
               placeholder="gsk_…"
               storageKey={GROQ_KEY_STORAGE}
               command="set_groq_key"
-              onSave={setHasGroqKey}
             />
             <ApiKeyInput
               label="Gemini key"
@@ -321,29 +318,16 @@ function SettingsApp() {
           <div className="prefs-section">
             <div className="pref-row">
               <span className="pref-label">Transcription</span>
-              <div className="provider-toggle">
-                <button
-                  className={`provider-btn ${sttProvider === "openai" ? "active" : ""}`}
-                  onClick={() => handleSttProviderChange("openai")}
+              <div className="pref-select-wrap">
+                <select
+                  className="pref-select"
+                  value={sttProvider}
+                  onChange={(e) => handleSttProviderChange(e.target.value as SttProvider)}
                 >
-                  OpenAI
-                </button>
-                <button
-                  className={`provider-btn ${sttProvider === "groq" ? "active" : ""}`}
-                  onClick={() => handleSttProviderChange("groq")}
-                  disabled={!hasGroqKey}
-                  title={hasGroqKey ? "" : "Add Groq API key above to enable"}
-                >
-                  Groq
-                </button>
-                <button
-                  className={`provider-btn ${sttProvider === "gemini" ? "active" : ""}`}
-                  onClick={() => handleSttProviderChange("gemini")}
-                  disabled={!hasGeminiKey}
-                  title={hasGeminiKey ? "" : "Add Gemini API key above to enable"}
-                >
-                  Gemini
-                </button>
+                  <option value="openai">OpenAI Whisper</option>
+                  <option value="groq">Groq Whisper</option>
+                  <option value="gemini">Gemini</option>
+                </select>
               </div>
             </div>
 
@@ -364,38 +348,18 @@ function SettingsApp() {
 
             <div className="pref-row">
               <span className="pref-label">Cleanup</span>
-              <button
-                className={`toggle-btn ${cleanupEnabled ? "on" : "off"}`}
-                onClick={handleCleanupToggle}
-                title={!cleanupKeyAvailable ? "Set a cleanup provider key above to activate" : ""}
-              >
-                {cleanupEnabled ? "On" : "Off"}
-              </button>
-            </div>
-
-            {cleanupEnabled && (
-              <div className="pref-row">
-                <span className="pref-label">Cleanup via</span>
-                <div className="provider-toggle">
-                  <button
-                    className={`provider-btn ${cleanupProvider === "anthropic" ? "active" : ""}`}
-                    onClick={() => handleCleanupProviderChange("anthropic")}
-                    disabled={!hasAnthropicKey}
-                    title={hasAnthropicKey ? "" : "Add Anthropic key above to enable"}
-                  >
-                    Claude
-                  </button>
-                  <button
-                    className={`provider-btn ${cleanupProvider === "gemini" ? "active" : ""}`}
-                    onClick={() => handleCleanupProviderChange("gemini")}
-                    disabled={!hasGeminiKey}
-                    title={hasGeminiKey ? "" : "Add Gemini key above to enable"}
-                  >
-                    Gemini
-                  </button>
-                </div>
+              <div className="pref-select-wrap">
+                <select
+                  className="pref-select"
+                  value={cleanupSelection}
+                  onChange={(e) => handleCleanupChange(e.target.value)}
+                >
+                  <option value="off">Off</option>
+                  <option value="anthropic">Claude (Anthropic)</option>
+                  <option value="gemini">Gemini</option>
+                </select>
               </div>
-            )}
+            </div>
 
             <div className="pref-row">
               <span className="pref-label">Context</span>
