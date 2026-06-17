@@ -70,6 +70,23 @@ interface AppSettings {
   language: string;
   hotkey: string;
   context_awareness_enabled: boolean;
+  input_device: string;
+}
+
+interface AudioDeviceInfo {
+  id: string;
+  name: string;
+  is_default: boolean;
+}
+
+interface AudioCaptureInfo {
+  device_name: string;
+  sample_rate: number;
+  input_channels: number;
+  samples: number;
+  duration_secs: number;
+  peak: number;
+  rms: number;
 }
 
 interface ApiKeyInputProps {
@@ -139,10 +156,13 @@ function SettingsApp() {
   const [recordingState, setRecordingState] = useState<RecordingState>("idle");
   const [transcript, setTranscript] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [lastCapture, setLastCapture] = useState<AudioCaptureInfo | null>(null);
 
   const [sttProvider, setSttProvider] = useState<SttProvider>("openai");
   const [cleanupSelection, setCleanupSelection] = useState<CleanupSelection>("anthropic");
   const [language, setLanguage] = useState("en");
+  const [inputDevice, setInputDevice] = useState("");
+  const [audioDevices, setAudioDevices] = useState<AudioDeviceInfo[]>([]);
   const [hotkey, setHotkey] = useState("ctrl_win");
   const [contextAwareness, setContextAwareness] = useState(true);
   const [theme, setTheme] = useState<Theme>(
@@ -172,9 +192,13 @@ function SettingsApp() {
         s.cleanup_enabled ? (s.cleanup_provider as CleanupSelection) : "off"
       );
       setLanguage(s.language);
+      setInputDevice(s.input_device);
       setHotkey(s.hotkey);
       setContextAwareness(s.context_awareness_enabled);
     });
+    invoke<AudioDeviceInfo[]>("list_audio_devices")
+      .then(setAudioDevices)
+      .catch((e) => setErrorMsg(String(e)));
 
     const listeners = [
       listen<string>("recording-state", (e) => {
@@ -183,6 +207,7 @@ function SettingsApp() {
       }),
       listen<string>("transcript", (e) => setTranscript(e.payload)),
       listen<string>("error-message", (e) => setErrorMsg(e.payload)),
+      listen<AudioCaptureInfo>("audio-capture", (e) => setLastCapture(e.payload)),
     ];
     return () => { listeners.forEach((p) => p.then((f) => f())); };
   }, []);
@@ -218,6 +243,11 @@ function SettingsApp() {
     invoke("set_language", { language: lang });
   }
 
+  function handleInputDeviceChange(device: string) {
+    setInputDevice(device);
+    invoke("set_input_device", { device });
+  }
+
   function handleHotkeyChange(hk: string) {
     setHotkey(hk);
     invoke("set_hotkey_combo", { hotkey: hk });
@@ -233,6 +263,9 @@ function SettingsApp() {
     setTheme(t);
     localStorage.setItem(THEME_STORAGE, t);
   }
+
+  const selectedDeviceMissing =
+    inputDevice !== "" && !audioDevices.some((device) => device.id === inputDevice);
 
   return (
     <main className="container">
@@ -282,6 +315,18 @@ function SettingsApp() {
             <p className="transcript">&ldquo;{transcript}&rdquo;</p>
           )}
 
+          {lastCapture && recordingState === "idle" && (
+            <div className="capture-info">
+              <span className="capture-title">Last capture</span>
+              <span>{lastCapture.device_name}</span>
+              <span>{lastCapture.duration_secs.toFixed(1)}s</span>
+              <span>{lastCapture.sample_rate} Hz</span>
+              <span>{lastCapture.input_channels} ch</span>
+              <span>peak {lastCapture.peak.toFixed(3)}</span>
+              <span>rms {lastCapture.rms.toFixed(3)}</span>
+            </div>
+          )}
+
           <div className="keys-section">
             {sttProvider === "openai" && (
               <ApiKeyInput
@@ -321,6 +366,27 @@ function SettingsApp() {
 
           <div className="prefs-section">
             <div className="pref-row">
+              <span className="pref-label">Microphone</span>
+              <div className="pref-select-wrap">
+                <select
+                  className="pref-select"
+                  value={inputDevice}
+                  onChange={(e) => handleInputDeviceChange(e.target.value)}
+                >
+                  <option value="">System default</option>
+                  {selectedDeviceMissing && (
+                    <option value={inputDevice}>{inputDevice} (unavailable)</option>
+                  )}
+                  {audioDevices.map((device) => (
+                    <option key={device.id} value={device.id}>
+                      {device.name}{device.is_default ? " (default)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="pref-row">
               <span className="pref-label">Transcription</span>
               <div className="pref-select-wrap">
                 <select
@@ -328,7 +394,7 @@ function SettingsApp() {
                   value={sttProvider}
                   onChange={(e) => handleSttProviderChange(e.target.value as SttProvider)}
                 >
-                  <option value="openai">OpenAI Whisper</option>
+                  <option value="openai">OpenAI Transcribe</option>
                   <option value="groq">Groq Whisper</option>
                   <option value="gemini">Gemini</option>
                 </select>

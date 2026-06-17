@@ -7,7 +7,8 @@ A push-to-talk voice-to-text desktop app for Windows. Hold a hotkey, speak natur
 ## Features
 
 - Push-to-talk recording with a configurable hotkey
-- Speech-to-text via **OpenAI Whisper**, **Groq Whisper**, or **Gemini**
+- Microphone selection — choose any input device or use the system default
+- Speech-to-text via **OpenAI Transcribe**, **Groq Whisper**, or **Gemini**
 - Optional AI cleanup pass that removes filler words, fixes punctuation, and adapts output style to the focused app (code editor, chat, email, terminal)
 - Automatic context detection — detects VS Code, Slack, Outlook, terminals, and more
 - Audio ducking — lowers all system audio by 90% while you speak
@@ -45,7 +46,7 @@ You must set up exactly one STT provider. Keys for providers you don't use are n
 
 | Provider | Key looks like | Where to get it | Notes |
 |---|---|---|---|
-| **OpenAI Whisper** *(default)* | `sk-…` | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | Pay-per-use; most accurate |
+| **OpenAI Transcribe** *(default)* | `sk-…` | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | Pay-per-use; uses gpt-4o-transcribe |
 | **Groq Whisper** | `gsk_…` | [console.groq.com/keys](https://console.groq.com/keys) | Free tier; ~5× faster than OpenAI |
 | **Gemini** | `AIza…` | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | Free tier available |
 
@@ -70,7 +71,8 @@ The cleanup pass is an optional second AI step that polishes the raw transcript.
 
 | Setting | Options | Notes |
 |---|---|---|
-| **Transcription** | OpenAI Whisper / Groq Whisper / Gemini | Which STT API to use |
+| **Microphone** | System default / detected input devices | Choose which microphone to record from |
+| **Transcription** | OpenAI Transcribe / Groq Whisper / Gemini | Which STT API to use |
 | **Language** | Auto-detect, English, Japanese, Spanish, French, German, Chinese, Korean, Portuguese, Italian, Russian, Arabic, Hindi | Improves accuracy for non-English speech |
 | **Cleanup** | Off / Claude (Anthropic) / Gemini | AI pass to polish the transcript; optional |
 | **Context** | On / Off | Detects the focused app and adapts cleanup style; defaults on |
@@ -128,8 +130,8 @@ src/
 
 src-tauri/src/
   lib.rs           Tauri setup, AppState, tray, hotkey loop, overlay control
-  audio.rs         Microphone capture → f32 mono WAV (cpal + hound)
-  transcribe.rs    STT dispatch — OpenAI / Groq Whisper, Gemini
+  audio.rs         Microphone capture → 16-bit PCM mono WAV (cpal + hound)
+  transcribe.rs    STT dispatch — OpenAI Transcribe / Groq Whisper, Gemini
   cleanup.rs       AI cleanup dispatch — Anthropic Claude, Gemini
   context.rs       Focused-app detection and context classification
   hotkey.rs        Windows low-level keyboard hook (WH_KEYBOARD_LL)

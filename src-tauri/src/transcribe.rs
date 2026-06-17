@@ -12,6 +12,20 @@ async fn checked_json(
     response.json().await.map_err(|e| e.to_string())
 }
 
+fn dictation_prompt(language: &str) -> String {
+    let language_note = if !language.is_empty() && language != "auto" {
+        format!(" The speech language is {language}.")
+    } else {
+        String::new()
+    };
+
+    format!(
+        "This is push-to-talk dictation from a desktop microphone. Transcribe only the words \
+         actually spoken. Preserve technical terms, product names, punctuation words, numbers, \
+         acronyms, and brief pauses as accurately as possible.{language_note}"
+    )
+}
+
 pub async fn transcribe(
     wav_path: &std::path::Path,
     openai_key: &str,
@@ -29,6 +43,7 @@ pub async fn transcribe(
                 "https://api.groq.com/openai/v1/audio/transcriptions",
                 "whisper-large-v3-turbo",
                 language,
+                None,
             )
             .await
         }
@@ -37,8 +52,9 @@ pub async fn transcribe(
                 wav_path,
                 openai_key,
                 "https://api.openai.com/v1/audio/transcriptions",
-                "whisper-1",
+                "gpt-4o-transcribe",
                 language,
+                Some(dictation_prompt(language)),
             )
             .await
         }
@@ -51,6 +67,7 @@ async fn transcribe_whisper(
     url: &str,
     model: &str,
     language: &str,
+    prompt: Option<String>,
 ) -> Result<String, String> {
     let wav_bytes = std::fs::read(wav_path).map_err(|e| e.to_string())?;
     let file_part = reqwest::multipart::Part::bytes(wav_bytes)
@@ -64,6 +81,10 @@ async fn transcribe_whisper(
     if !language.is_empty() && language != "auto" {
         form = form.text("language", language.to_string());
     }
+    if let Some(prompt) = prompt {
+        form = form.text("prompt", prompt);
+    }
+    form = form.text("temperature", "0");
 
     let json = checked_json(
         reqwest::Client::new()

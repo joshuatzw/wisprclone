@@ -18,14 +18,23 @@ pub fn boost_quiet(path: &std::path::Path) {
 
     let spec = reader.spec();
 
-    // The recorder always writes f32; bail on anything else.
-    if spec.sample_format != hound::SampleFormat::Float {
-        return;
-    }
-
-    let samples: Vec<f32> = match reader.into_samples::<f32>().collect::<Result<Vec<_>, _>>() {
-        Ok(s) => s,
-        Err(_) => return,
+    let samples: Vec<f32> = match spec.sample_format {
+        hound::SampleFormat::Float => {
+            match reader.into_samples::<f32>().collect::<Result<Vec<_>, _>>() {
+                Ok(s) => s,
+                Err(_) => return,
+            }
+        }
+        hound::SampleFormat::Int if spec.bits_per_sample == 16 => {
+            match reader.into_samples::<i16>().collect::<Result<Vec<_>, _>>() {
+                Ok(s) => s
+                    .into_iter()
+                    .map(|sample| sample as f32 / i16::MAX as f32)
+                    .collect(),
+                Err(_) => return,
+            }
+        }
+        _ => return,
     };
 
     if samples.is_empty() {
@@ -41,12 +50,26 @@ pub fn boost_quiet(path: &std::path::Path) {
     let gain = TARGET / peak;
     println!("[wispr] normalize: peak={peak:.4} gain={gain:.2}x (whispering detected)");
 
-    let boosted: Vec<f32> = samples.iter().map(|&s| (s * gain).clamp(-1.0, 1.0)).collect();
+    let boosted: Vec<f32> = samples
+        .iter()
+        .map(|&s| (s * gain).clamp(-1.0, 1.0))
+        .collect();
 
     match hound::WavWriter::create(path, spec) {
         Ok(mut writer) => {
-            for s in boosted {
-                let _ = writer.write_sample(s);
+            match spec.sample_format {
+                hound::SampleFormat::Float => {
+                    for s in boosted {
+                        let _ = writer.write_sample(s);
+                    }
+                }
+                hound::SampleFormat::Int if spec.bits_per_sample == 16 => {
+                    for s in boosted {
+                        let sample = (s.clamp(-1.0, 1.0) * i16::MAX as f32).round() as i16;
+                        let _ = writer.write_sample(sample);
+                    }
+                }
+                _ => return,
             }
             let _ = writer.finalize();
         }

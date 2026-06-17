@@ -32,11 +32,11 @@ struct AppState {
 #[tauri::command]
 fn set_api_key(state: tauri::State<AppState>, name: String, key: String) {
     match name.as_str() {
-        "openai"    => *state.openai_key.lock().unwrap() = key,
+        "openai" => *state.openai_key.lock().unwrap() = key,
         "anthropic" => *state.anthropic_key.lock().unwrap() = key,
-        "groq"      => *state.groq_key.lock().unwrap() = key,
-        "gemini"    => *state.gemini_key.lock().unwrap() = key,
-        _           => {}
+        "groq" => *state.groq_key.lock().unwrap() = key,
+        "gemini" => *state.gemini_key.lock().unwrap() = key,
+        _ => {}
     }
 }
 
@@ -51,9 +51,9 @@ fn set_cleanup_enabled(state: tauri::State<AppState>, enabled: bool) {
 fn set_stt_provider(state: tauri::State<AppState>, provider: String) {
     let mut cfg = state.config.lock().unwrap();
     cfg.stt_provider = match provider.as_str() {
-        "groq"   => config::SttProvider::Groq,
+        "groq" => config::SttProvider::Groq,
         "gemini" => config::SttProvider::Gemini,
-        _        => config::SttProvider::Openai,
+        _ => config::SttProvider::Openai,
     };
     config::save(&state.app_data_dir, &cfg);
 }
@@ -63,7 +63,7 @@ fn set_cleanup_provider(state: tauri::State<AppState>, provider: String) {
     let mut cfg = state.config.lock().unwrap();
     cfg.cleanup_provider = match provider.as_str() {
         "gemini" => config::CleanupProvider::Gemini,
-        _        => config::CleanupProvider::Anthropic,
+        _ => config::CleanupProvider::Anthropic,
     };
     config::save(&state.app_data_dir, &cfg);
 }
@@ -72,6 +72,18 @@ fn set_cleanup_provider(state: tauri::State<AppState>, provider: String) {
 fn set_language(state: tauri::State<AppState>, language: String) {
     let mut cfg = state.config.lock().unwrap();
     cfg.language = language;
+    config::save(&state.app_data_dir, &cfg);
+}
+
+#[tauri::command]
+fn list_audio_devices() -> Result<Vec<audio::AudioDeviceInfo>, String> {
+    audio::list_input_devices()
+}
+
+#[tauri::command]
+fn set_input_device(state: tauri::State<AppState>, device: String) {
+    let mut cfg = state.config.lock().unwrap();
+    cfg.input_device = device;
     config::save(&state.app_data_dir, &cfg);
 }
 
@@ -86,10 +98,10 @@ fn set_context_awareness_enabled(state: tauri::State<AppState>, enabled: bool) {
 fn set_hotkey_combo(state: tauri::State<AppState>, hotkey: String) {
     hotkey::reset();
     let combo = match hotkey.as_str() {
-        "right_alt"  => config::HotkeyCombo::RightAlt,
+        "right_alt" => config::HotkeyCombo::RightAlt,
         "ctrl_shift" => config::HotkeyCombo::CtrlShift,
-        "ctrl_alt"   => config::HotkeyCombo::CtrlAlt,
-        _            => config::HotkeyCombo::CtrlWin,
+        "ctrl_alt" => config::HotkeyCombo::CtrlAlt,
+        _ => config::HotkeyCombo::CtrlWin,
     };
     hotkey::set_combo(combo.to_u8());
     let mut cfg = state.config.lock().unwrap();
@@ -105,6 +117,7 @@ struct Settings {
     language: String,
     hotkey: String,
     context_awareness_enabled: bool,
+    input_device: String,
 }
 
 #[tauri::command]
@@ -117,6 +130,7 @@ fn get_settings(state: tauri::State<AppState>) -> Settings {
         language: cfg.language.clone(),
         hotkey: cfg.hotkey.as_str().to_string(),
         context_awareness_enabled: cfg.context_awareness_enabled,
+        input_device: cfg.input_device.clone(),
     }
 }
 
@@ -131,7 +145,6 @@ fn delete_history_entry(state: tauri::State<AppState>, id: u64) {
     entries.retain(|e| e.id != id);
     history::save(&state.app_data_dir, &entries);
 }
-
 
 struct RecordingJob {
     openai_key: String,
@@ -173,7 +186,7 @@ async fn process_recording(handle: AppHandle, job: RecordingJob) {
 
     let cleanup_key_ok = match job.cleanup_provider.as_str() {
         "gemini" => !job.gemini_key.is_empty(),
-        _        => !job.anthropic_key.is_empty(),
+        _ => !job.anthropic_key.is_empty(),
     };
 
     let final_text = if job.cleanup_enabled && cleanup_key_ok {
@@ -231,6 +244,8 @@ pub fn run() {
             set_stt_provider,
             set_cleanup_provider,
             set_language,
+            list_audio_devices,
+            set_input_device,
             set_hotkey_combo,
             set_context_awareness_enabled,
             get_settings,
@@ -334,13 +349,18 @@ pub fn run() {
                         if !rec.is_recording() {
                             *state.pending_context.lock().unwrap() =
                                 context::detect_focused_app();
-                            match rec.start() {
+                            let input_device = state.config.lock().unwrap().input_device.clone();
+                            match rec.start(&input_device) {
                                 Ok(()) => {
                                     volume::duck();
                                     println!("[wispr] Recording started");
                                     handle.emit("recording-state", "recording").ok();
                                 }
-                                Err(e) => eprintln!("[wispr] Start error: {e}"),
+                                Err(e) => {
+                                    eprintln!("[wispr] Start error: {e}");
+                                    handle.emit("recording-state", "idle").ok();
+                                    handle.emit("error-message", e).ok();
+                                }
                             }
                         }
                         continue;
@@ -349,11 +369,24 @@ pub fn run() {
                     // Key released — restore audio immediately, then process
                     volume::unduck();
                     let wav_path = std::env::temp_dir().join("wispr_recording.wav");
-                    if let Err(e) = state.recorder.lock().unwrap().stop_and_save(&wav_path) {
-                        eprintln!("[wispr] Save error: {e}");
-                        handle.emit("recording-state", "idle").ok();
-                        continue;
-                    }
+                    let capture = match state.recorder.lock().unwrap().stop_and_save(&wav_path) {
+                        Ok(info) => info,
+                        Err(e) => {
+                            eprintln!("[wispr] Save error: {e}");
+                            handle.emit("recording-state", "idle").ok();
+                            continue;
+                        }
+                    };
+                    println!(
+                        "[wispr] Capture: device=\"{}\" duration={:.2}s rate={}Hz channels={} peak={:.4} rms={:.4}",
+                        capture.device_name,
+                        capture.duration_secs,
+                        capture.sample_rate,
+                        capture.input_channels,
+                        capture.peak,
+                        capture.rms
+                    );
+                    handle.emit("audio-capture", capture).ok();
 
                     let stt_provider = state.config.lock().unwrap().stt_provider.as_str().to_string();
                     let openai_key = state.openai_key.lock().unwrap().clone();

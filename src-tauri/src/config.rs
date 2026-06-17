@@ -96,6 +96,8 @@ pub struct AppConfig {
     pub hotkey: HotkeyCombo,
     #[serde(default = "default_true")]
     pub context_awareness_enabled: bool,
+    #[serde(default)]
+    pub input_device: String,
 }
 
 fn default_true() -> bool {
@@ -115,6 +117,7 @@ impl Default for AppConfig {
             language: "en".to_string(),
             hotkey: HotkeyCombo::CtrlWin,
             context_awareness_enabled: true,
+            input_device: String::new(),
         }
     }
 }
