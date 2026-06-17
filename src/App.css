@@ -160,31 +160,6 @@ html.overlay-window #root {
   font-style: italic;
 }
 
-.capture-info {
-  width: 100%;
-  max-width: 400px;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px;
-  color: var(--text-dim);
-  font-size: 0.72rem;
-  line-height: 1.4;
-}
-
-.capture-info span {
-  min-height: 20px;
-  padding: 2px 7px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--badge-off-bg);
-}
-
-.capture-info .capture-title {
-  color: var(--text-sub);
-  border-color: var(--border-soft);
-}
-
 .cleanup-badge {
   font-size: 0.75rem;
   padding: 3px 10px;
