@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Overlay } from "./Overlay";
 import { History } from "./History";
+import { Vocabulary } from "./Vocabulary";
 import "./App.css";
 
 const WINDOW_LABEL = getCurrentWindow().label;
@@ -13,10 +14,11 @@ if (WINDOW_LABEL === "overlay") {
 }
 
 type RecordingState = "idle" | "recording" | "transcribing" | "cleaning";
-type Tab = "settings" | "history";
+type Tab = "settings" | "history" | "vocabulary";
 type SttProvider = "openai" | "groq" | "gemini";
 type CleanupSelection = "off" | "anthropic" | "gemini";
 type Theme = "light" | "dark" | "auto";
+type ToneStyle = "formal" | "casual";
 
 const THEME_STORAGE = "wispr_theme";
 
@@ -70,7 +72,12 @@ interface AppSettings {
   language: string;
   hotkey: string;
   context_awareness_enabled: boolean;
+  tone_style: string;
   input_device: string;
+  openai_key: string;
+  anthropic_key: string;
+  groq_key: string;
+  gemini_key: string;
 }
 
 interface AudioDeviceInfo {
@@ -85,17 +92,29 @@ interface ApiKeyInputProps {
   placeholder: string;
   storageKey: string;
   name: string;
+  initialValue?: string;
   onSave?: (hasSavedKey: boolean) => void;
 }
 
-function ApiKeyInput({ label, sublabel, placeholder, storageKey, name, onSave }: ApiKeyInputProps) {
+function ApiKeyInput({ label, sublabel, placeholder, storageKey, name, initialValue = "", onSave }: ApiKeyInputProps) {
   const [value, setValue] = useState("");
   const [saved, setSaved] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
 
+  // Seed from backend config (persisted across restarts)
+  useEffect(() => {
+    if (initialValue) {
+      setValue(initialValue);
+      setSaved(true);
+      onSave?.(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialValue]);
+
+  // Migration: if localStorage has a key the backend doesn't know about yet, push it
   useEffect(() => {
     const stored = localStorage.getItem(storageKey) ?? "";
-    if (stored) {
+    if (stored && !initialValue) {
       setValue(stored);
       setSaved(true);
       invoke("set_api_key", { name, key: stored });
@@ -153,6 +172,7 @@ function SettingsApp() {
   const [audioDevices, setAudioDevices] = useState<AudioDeviceInfo[]>([]);
   const [hotkey, setHotkey] = useState("ctrl_win");
   const [contextAwareness, setContextAwareness] = useState(true);
+  const [toneStyle, setToneStyle] = useState<ToneStyle>("formal");
   const [theme, setTheme] = useState<Theme>(
     () => (localStorage.getItem(THEME_STORAGE) as Theme) ?? "auto"
   );
@@ -163,6 +183,7 @@ function SettingsApp() {
   const [hasGeminiKey, setHasGeminiKey] = useState(
     !!(localStorage.getItem(GEMINI_KEY_STORAGE)?.trim())
   );
+  const [apiKeys, setApiKeys] = useState({ openai: "", anthropic: "", groq: "", gemini: "" });
 
   useEffect(() => {
     applyTheme(theme);
@@ -183,6 +204,10 @@ function SettingsApp() {
       setInputDevice(s.input_device);
       setHotkey(s.hotkey);
       setContextAwareness(s.context_awareness_enabled);
+      setToneStyle((s.tone_style as ToneStyle) ?? "formal");
+      setApiKeys({ openai: s.openai_key, anthropic: s.anthropic_key, groq: s.groq_key, gemini: s.gemini_key });
+      if (s.anthropic_key) setHasAnthropicKey(true);
+      if (s.gemini_key) setHasGeminiKey(true);
     });
     invoke<AudioDeviceInfo[]>("list_audio_devices")
       .then(setAudioDevices)
@@ -246,6 +271,11 @@ function SettingsApp() {
     invoke("set_context_awareness_enabled", { enabled: next });
   }
 
+  function handleToneStyleChange(tone: ToneStyle) {
+    setToneStyle(tone);
+    invoke("set_tone_style", { tone });
+  }
+
   function handleThemeChange(t: Theme) {
     setTheme(t);
     localStorage.setItem(THEME_STORAGE, t);
@@ -271,9 +301,17 @@ function SettingsApp() {
         >
           History
         </button>
+        <button
+          className={`tab-btn ${tab === "vocabulary" ? "active" : ""}`}
+          onClick={() => setTab("vocabulary")}
+        >
+          Vocabulary
+        </button>
       </div>
 
-      {tab === "settings" ? (
+      {tab === "vocabulary" ? (
+        <Vocabulary />
+      ) : tab === "settings" ? (
         <>
           <div className={`mic-ring ${recordingState !== "idle" ? "active" : ""} ${isProcessing ? "processing" : ""}`}>
             {isProcessing ? (
@@ -309,6 +347,7 @@ function SettingsApp() {
                 placeholder="sk-…"
                 storageKey={OPENAI_KEY_STORAGE}
                 name="openai"
+                initialValue={apiKeys.openai}
               />
             )}
             {sttProvider === "groq" && (
@@ -317,6 +356,7 @@ function SettingsApp() {
                 placeholder="gsk_…"
                 storageKey={GROQ_KEY_STORAGE}
                 name="groq"
+                initialValue={apiKeys.groq}
               />
             )}
             {(sttProvider === "gemini" || cleanupSelection === "gemini") && (
@@ -325,6 +365,7 @@ function SettingsApp() {
                 placeholder="AIza…"
                 storageKey={GEMINI_KEY_STORAGE}
                 name="gemini"
+                initialValue={apiKeys.gemini}
                 onSave={setHasGeminiKey}
               />
             )}
@@ -334,6 +375,7 @@ function SettingsApp() {
                 placeholder="sk-ant-…"
                 storageKey={ANTHROPIC_KEY_STORAGE}
                 name="anthropic"
+                initialValue={apiKeys.anthropic}
                 onSave={setHasAnthropicKey}
               />
             )}
@@ -418,6 +460,21 @@ function SettingsApp() {
             </div>
 
             <div className="pref-row">
+              <span className="pref-label">Tone</span>
+              <div className="provider-toggle">
+                {(["formal", "casual"] as ToneStyle[]).map((t) => (
+                  <button
+                    key={t}
+                    className={`provider-btn ${toneStyle === t ? "active" : ""}`}
+                    onClick={() => handleToneStyleChange(t)}
+                  >
+                    {t.charAt(0).toUpperCase() + t.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="pref-row">
               <span className="pref-label">Appearance</span>
               <div className="provider-toggle">
                 {(["light", "dark", "auto"] as Theme[]).map((t) => (
@@ -452,6 +509,7 @@ function SettingsApp() {
       ) : (
         <History />
       )}
+
     </main>
   );
 }

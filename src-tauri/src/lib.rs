@@ -8,11 +8,13 @@ mod audio;
 mod cleanup;
 mod config;
 mod context;
+mod corrections;
 mod history;
 mod hotkey;
 mod inject;
 mod normalize;
 mod transcribe;
+mod vocabulary;
 mod volume;
 
 use audio::AudioRecorder;
@@ -25,19 +27,35 @@ struct AppState {
     gemini_key: Mutex<String>,
     config: Mutex<config::AppConfig>,
     history: Mutex<Vec<history::HistoryEntry>>,
+    vocabulary: Mutex<vocabulary::VocabStore>,
+    corrections: Mutex<corrections::CorrectionsStore>,
     app_data_dir: PathBuf,
     pending_context: Mutex<context::AppContext>,
 }
 
 #[tauri::command]
 fn set_api_key(state: tauri::State<AppState>, name: String, key: String) {
+    let mut cfg = state.config.lock().unwrap();
     match name.as_str() {
-        "openai" => *state.openai_key.lock().unwrap() = key,
-        "anthropic" => *state.anthropic_key.lock().unwrap() = key,
-        "groq" => *state.groq_key.lock().unwrap() = key,
-        "gemini" => *state.gemini_key.lock().unwrap() = key,
-        _ => {}
+        "openai" => {
+            *state.openai_key.lock().unwrap() = key.clone();
+            cfg.openai_key = key;
+        }
+        "anthropic" => {
+            *state.anthropic_key.lock().unwrap() = key.clone();
+            cfg.anthropic_key = key;
+        }
+        "groq" => {
+            *state.groq_key.lock().unwrap() = key.clone();
+            cfg.groq_key = key;
+        }
+        "gemini" => {
+            *state.gemini_key.lock().unwrap() = key.clone();
+            cfg.gemini_key = key;
+        }
+        _ => return,
     }
+    config::save(&state.app_data_dir, &cfg);
 }
 
 #[tauri::command]
@@ -95,6 +113,16 @@ fn set_context_awareness_enabled(state: tauri::State<AppState>, enabled: bool) {
 }
 
 #[tauri::command]
+fn set_tone_style(state: tauri::State<AppState>, tone: String) {
+    let mut cfg = state.config.lock().unwrap();
+    cfg.tone_style = match tone.as_str() {
+        "casual" => config::ToneStyle::Casual,
+        _ => config::ToneStyle::Formal,
+    };
+    config::save(&state.app_data_dir, &cfg);
+}
+
+#[tauri::command]
 fn set_hotkey_combo(state: tauri::State<AppState>, hotkey: String) {
     hotkey::reset();
     let combo = match hotkey.as_str() {
@@ -117,7 +145,12 @@ struct Settings {
     language: String,
     hotkey: String,
     context_awareness_enabled: bool,
+    tone_style: String,
     input_device: String,
+    openai_key: String,
+    anthropic_key: String,
+    groq_key: String,
+    gemini_key: String,
 }
 
 #[tauri::command]
@@ -130,7 +163,12 @@ fn get_settings(state: tauri::State<AppState>) -> Settings {
         language: cfg.language.clone(),
         hotkey: cfg.hotkey.as_str().to_string(),
         context_awareness_enabled: cfg.context_awareness_enabled,
+        tone_style: cfg.tone_style.as_str().to_string(),
         input_device: cfg.input_device.clone(),
+        openai_key: cfg.openai_key.clone(),
+        anthropic_key: cfg.anthropic_key.clone(),
+        groq_key: cfg.groq_key.clone(),
+        gemini_key: cfg.gemini_key.clone(),
     }
 }
 
@@ -146,6 +184,68 @@ fn delete_history_entry(state: tauri::State<AppState>, id: u64) {
     history::save(&state.app_data_dir, &entries);
 }
 
+#[tauri::command]
+fn update_history_text(state: tauri::State<AppState>, id: u64, new_text: String) {
+    let old_text = {
+        let mut entries = state.history.lock().unwrap();
+        let Some(entry) = entries.iter_mut().find(|e| e.id == id) else { return };
+        let old = entry.text.clone();
+        entry.text = new_text.clone();
+        history::save(&state.app_data_dir, &entries);
+        old
+    };
+
+    // Learn new correction rules from the edit
+    let correction_targets: Vec<String> = {
+        let mut corr = state.corrections.lock().unwrap();
+        corr.learn_from_diff(&old_text, &new_text);
+        corrections::save(&state.app_data_dir, &corr);
+        corr.rules.values().cloned().collect()
+    };
+
+    // Promote corrected forms in vocabulary so they're used as active STT hints
+    {
+        let mut vocab = state.vocabulary.lock().unwrap();
+        vocab.learn(&new_text);
+        for correct_form in correction_targets {
+            vocab.add(correct_form);
+        }
+        vocabulary::save(&state.app_data_dir, &vocab);
+    }
+}
+
+#[derive(serde::Serialize)]
+struct VocabWord {
+    word: String,
+    count: u32,
+}
+
+#[tauri::command]
+fn get_vocabulary(state: tauri::State<AppState>) -> Vec<VocabWord> {
+    state
+        .vocabulary
+        .lock()
+        .unwrap()
+        .all_sorted()
+        .into_iter()
+        .map(|(word, count)| VocabWord { word, count })
+        .collect()
+}
+
+#[tauri::command]
+fn add_vocab_word(state: tauri::State<AppState>, word: String) {
+    let mut vocab = state.vocabulary.lock().unwrap();
+    vocab.add(word);
+    vocabulary::save(&state.app_data_dir, &vocab);
+}
+
+#[tauri::command]
+fn delete_vocab_word(state: tauri::State<AppState>, word: String) {
+    let mut vocab = state.vocabulary.lock().unwrap();
+    vocab.remove(&word);
+    vocabulary::save(&state.app_data_dir, &vocab);
+}
+
 struct RecordingJob {
     openai_key: String,
     anthropic_key: String,
@@ -156,6 +256,30 @@ struct RecordingJob {
     cleanup_provider: String,
     language: String,
     app_context: context::AppContext,
+    tone_style: config::ToneStyle,
+    vocab_words: Vec<String>,
+    corrections: corrections::CorrectionsStore,
+}
+
+fn apply_tone_fallback(text: &str, tone: &config::ToneStyle) -> String {
+    match tone {
+        config::ToneStyle::Formal => {
+            let mut chars = text.chars();
+            let capitalized = match chars.next() {
+                Some(c) => {
+                    let upper: String = c.to_uppercase().collect();
+                    upper + chars.as_str()
+                }
+                None => return text.to_string(),
+            };
+            if capitalized.ends_with(|c: char| c.is_alphanumeric()) {
+                format!("{capitalized}.")
+            } else {
+                capitalized
+            }
+        }
+        config::ToneStyle::Casual => text.trim_end_matches('.').to_string(),
+    }
 }
 
 async fn process_recording(handle: AppHandle, job: RecordingJob) {
@@ -171,6 +295,7 @@ async fn process_recording(handle: AppHandle, job: RecordingJob) {
         &job.gemini_key,
         &job.stt_provider,
         &job.language,
+        &job.vocab_words,
     )
     .await
     {
@@ -183,6 +308,7 @@ async fn process_recording(handle: AppHandle, job: RecordingJob) {
         }
     };
     println!("[wispr] Raw: {raw}");
+    let raw = job.corrections.apply(&raw);
 
     let cleanup_key_ok = match job.cleanup_provider.as_str() {
         "gemini" => !job.gemini_key.is_empty(),
@@ -197,6 +323,8 @@ async fn process_recording(handle: AppHandle, job: RecordingJob) {
             &job.gemini_key,
             &job.cleanup_provider,
             &job.app_context,
+            &job.tone_style,
+            &job.vocab_words,
         )
         .await
         {
@@ -207,11 +335,11 @@ async fn process_recording(handle: AppHandle, job: RecordingJob) {
             Ok(_) => raw,
             Err(e) => {
                 eprintln!("[wispr] Cleanup error: {e}");
-                raw
+                apply_tone_fallback(&raw, &job.tone_style)
             }
         }
     } else {
-        raw
+        apply_tone_fallback(&raw, &job.tone_style)
     };
 
     if let Err(e) = inject::paste_text(&final_text) {
@@ -224,13 +352,61 @@ async fn process_recording(handle: AppHandle, job: RecordingJob) {
         final_text.clone(),
         &state.app_data_dir,
     );
+    {
+        let mut vocab = state.vocabulary.lock().unwrap();
+        vocab.learn(&final_text);
+        vocabulary::save(&state.app_data_dir, &vocab);
+    }
     handle.emit("history-entry", entry).ok();
     handle.emit("recording-state", "idle").ok();
     handle.emit("transcript", final_text).ok();
 }
 
+#[cfg(windows)]
+fn show_already_running_dialog(hotkey: &str) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        MessageBoxW, MB_ICONINFORMATION, MB_OK,
+    };
+    let title: Vec<u16> = "WisprClone\0".encode_utf16().collect();
+    let msg = format!(
+        "WisprClone is already running.\r\nPress {} to start recording!\0",
+        hotkey
+    );
+    let msg_w: Vec<u16> = msg.encode_utf16().collect();
+    unsafe {
+        MessageBoxW(0, msg_w.as_ptr(), title.as_ptr(), MB_OK | MB_ICONINFORMATION);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Single-instance guard: bind a local port exclusively; a second launch will fail to bind
+    // and see the "already running" dialog instead. The listener is held for the process lifetime.
+    let _instance_guard = match std::net::TcpListener::bind("127.0.0.1:37129") {
+        Ok(listener) => listener,
+        Err(_) => {
+            #[cfg(windows)]
+            {
+                let hotkey_label = std::env::var("APPDATA")
+                    .ok()
+                    .map(|appdata| {
+                        let dir =
+                            std::path::PathBuf::from(appdata).join("com.joshuatan.wispr-clone");
+                        let cfg = config::load(&dir);
+                        match cfg.hotkey {
+                            config::HotkeyCombo::CtrlWin => "Ctrl+Win",
+                            config::HotkeyCombo::RightAlt => "Right Alt",
+                            config::HotkeyCombo::CtrlShift => "Ctrl+Shift",
+                            config::HotkeyCombo::CtrlAlt => "Ctrl+Alt",
+                        }
+                    })
+                    .unwrap_or("Ctrl+Win");
+                show_already_running_dialog(hotkey_label);
+            }
+            std::process::exit(0);
+        }
+    };
+
     let recorder = AudioRecorder::new().expect("Failed to initialise audio recorder");
     let (hotkey_tx, hotkey_rx) = mpsc::sync_channel::<bool>(4);
 
@@ -248,9 +424,14 @@ pub fn run() {
             set_input_device,
             set_hotkey_combo,
             set_context_awareness_enabled,
+            set_tone_style,
             get_settings,
             get_history,
             delete_history_entry,
+            update_history_text,
+            get_vocabulary,
+            add_vocab_word,
+            delete_vocab_word,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -267,17 +448,21 @@ pub fn run() {
                 .unwrap_or_else(|_| std::env::temp_dir());
             let history_entries = history::load(&app_data_dir);
             let app_config = config::load(&app_data_dir);
+            let vocab_store = vocabulary::load(&app_data_dir);
+            let corrections_store = corrections::load(&app_data_dir);
 
             hotkey::set_combo(app_config.hotkey.to_u8());
 
             app.manage(AppState {
                 recorder: Mutex::new(recorder),
-                openai_key: Mutex::new(String::new()),
-                anthropic_key: Mutex::new(String::new()),
-                groq_key: Mutex::new(String::new()),
-                gemini_key: Mutex::new(String::new()),
+                openai_key: Mutex::new(app_config.openai_key.clone()),
+                anthropic_key: Mutex::new(app_config.anthropic_key.clone()),
+                groq_key: Mutex::new(app_config.groq_key.clone()),
+                gemini_key: Mutex::new(app_config.gemini_key.clone()),
                 config: Mutex::new(app_config),
                 history: Mutex::new(history_entries),
+                vocabulary: Mutex::new(vocab_store),
+                corrections: Mutex::new(corrections_store),
                 app_data_dir,
                 pending_context: Mutex::new(context::AppContext::General),
             });
@@ -409,13 +594,14 @@ pub fn run() {
                         continue;
                     }
 
-                    let (cleanup_enabled, cleanup_provider, language, context_enabled) = {
+                    let (cleanup_enabled, cleanup_provider, language, context_enabled, tone_style) = {
                         let cfg = state.config.lock().unwrap();
                         (
                             cfg.cleanup_enabled,
                             cfg.cleanup_provider.as_str().to_string(),
                             cfg.language.clone(),
                             cfg.context_awareness_enabled,
+                            cfg.tone_style.clone(),
                         )
                     };
                     let app_context = if context_enabled {
@@ -423,7 +609,11 @@ pub fn run() {
                     } else {
                         context::AppContext::General
                     };
+                    let vocab_words = state.vocabulary.lock().unwrap().active_words();
+                    let corrections = state.corrections.lock().unwrap().clone();
                     println!("[wispr] Context: {}", app_context.as_str());
+                    println!("[wispr] Vocab hints: {} words", vocab_words.len());
+                    println!("[wispr] Corrections: {} rules", corrections.rules.len());
 
                     tauri::async_runtime::spawn(process_recording(
                         handle.clone(),
@@ -437,6 +627,9 @@ pub fn run() {
                             cleanup_provider,
                             language,
                             app_context,
+                            tone_style,
+                            vocab_words,
+                            corrections,
                         },
                     ));
                 }

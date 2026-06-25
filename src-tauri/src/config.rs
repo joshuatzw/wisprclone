@@ -49,6 +49,28 @@ impl CleanupProvider {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
+pub enum ToneStyle {
+    Formal,
+    Casual,
+}
+
+impl Default for ToneStyle {
+    fn default() -> Self {
+        ToneStyle::Formal
+    }
+}
+
+impl ToneStyle {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ToneStyle::Formal => "formal",
+            ToneStyle::Casual => "casual",
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "snake_case")]
 pub enum HotkeyCombo {
     CtrlWin,
     RightAlt,
@@ -97,7 +119,17 @@ pub struct AppConfig {
     #[serde(default = "default_true")]
     pub context_awareness_enabled: bool,
     #[serde(default)]
+    pub tone_style: ToneStyle,
+    #[serde(default)]
     pub input_device: String,
+    #[serde(default)]
+    pub openai_key: String,
+    #[serde(default)]
+    pub anthropic_key: String,
+    #[serde(default)]
+    pub groq_key: String,
+    #[serde(default)]
+    pub gemini_key: String,
 }
 
 fn default_true() -> bool {
@@ -117,7 +149,12 @@ impl Default for AppConfig {
             language: "en".to_string(),
             hotkey: HotkeyCombo::CtrlWin,
             context_awareness_enabled: true,
+            tone_style: ToneStyle::Formal,
             input_device: String::new(),
+            openai_key: String::new(),
+            anthropic_key: String::new(),
+            groq_key: String::new(),
+            gemini_key: String::new(),
         }
     }
 }

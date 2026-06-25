@@ -369,6 +369,31 @@ html.overlay-window #root {
   word-break: break-word;
 }
 
+.history-edit-area {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--blue);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.875rem;
+  font-family: inherit;
+  line-height: 1.5;
+  padding: 6px 8px;
+  resize: none;
+  overflow: hidden;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.history-edit-area:focus {
+  border-color: #7ab8f5;
+}
+
+.history-btn.save {
+  border-color: var(--btn-active-bdr);
+  color: var(--blue);
+}
+
 /* ── Overlay pill ─────────────────────────────────────── */
 
 .overlay-root {
@@ -532,4 +557,120 @@ html.overlay-window #root {
 
 .toggle-btn:hover {
   background: var(--bg-hover);
+}
+
+/* ── Vocabulary panel ─────────────────────────────────── */
+
+.vocab-description {
+  font-size: 0.8rem;
+  color: var(--text-sub);
+  text-align: center;
+  line-height: 1.5;
+  max-width: 360px;
+  margin: 0 0 12px;
+}
+
+.vocab-add-row {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+  max-width: 400px;
+  margin-bottom: 16px;
+}
+
+.vocab-input {
+  flex: 1;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 6px 10px;
+  font-size: 0.85rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.vocab-input:focus {
+  border-color: var(--text-dim);
+}
+
+.vocab-add-btn {
+  background: var(--bg-btn);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  color: var(--text-btn);
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.vocab-add-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.vocab-add-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.vocab-section {
+  width: 100%;
+  max-width: 400px;
+  margin-bottom: 12px;
+}
+
+.vocab-section-title {
+  font-size: 0.7rem;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0 0 6px;
+  font-weight: 500;
+}
+
+.vocab-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
+}
+
+.vocab-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.vocab-list::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  border-radius: 2px;
+}
+
+.vocab-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+.vocab-item.learning {
+  opacity: 0.6;
+}
+
+.vocab-word {
+  flex: 1;
+  font-size: 0.875rem;
+  color: var(--text-btn);
+}
+
+.vocab-count {
+  font-size: 0.7rem;
+  color: var(--text-faint);
+  min-width: 24px;
+  text-align: right;
 }

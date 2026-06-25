@@ -1,3 +1,4 @@
+use crate::config::ToneStyle;
 use crate::context::AppContext;
 use serde_json::{json, Value};
 
@@ -89,7 +90,17 @@ Rules:
 - Output only the cleaned text with no commentary or preamble
 - If the input is empty or completely unintelligible, output nothing";
 
-fn system_prompt(context: &AppContext) -> String {
+const TONE_FORMAL: &str = "\
+Tone: FORMAL — Capitalize the first word of every sentence. End every sentence with the \
+appropriate punctuation mark (period, question mark, or exclamation mark). Use standard \
+grammar and complete sentences.";
+
+const TONE_CASUAL: &str = "\
+Tone: CASUAL — Omit sentence-ending periods (but keep question marks and exclamation marks \
+when they add meaning). Capitalization is relaxed — short phrases do not need to start with \
+a capital letter. Keep the output feeling natural and conversational.";
+
+fn system_prompt(context: &AppContext, tone: &ToneStyle, vocab: &[String]) -> String {
     let rules = match context {
         AppContext::Code     => SYSTEM_CODE,
         AppContext::Chat     => SYSTEM_CHAT,
@@ -97,7 +108,21 @@ fn system_prompt(context: &AppContext) -> String {
         AppContext::Terminal => SYSTEM_TERMINAL,
         AppContext::General  => SYSTEM_GENERAL,
     };
-    format!("{PREAMBLE}\n\n{rules}")
+    let tone_rule = match tone {
+        ToneStyle::Formal => TONE_FORMAL,
+        ToneStyle::Casual => TONE_CASUAL,
+    };
+    let vocab_rule = if vocab.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\n\nUser vocabulary — proper nouns, slang, and custom terms this speaker uses: {}. \
+            If the transcript contains a word that is phonetically similar to one of these, \
+            replace it with the correct vocabulary word.",
+            vocab.join(", ")
+        )
+    };
+    format!("{PREAMBLE}\n\n{rules}\n\nTone (takes priority over context-specific punctuation rules):\n{tone_rule}{vocab_rule}")
 }
 
 async fn checked_json(response: reqwest::Response, label: &str) -> Result<Value, String> {
@@ -115,13 +140,15 @@ pub async fn cleanup_transcript(
     gemini_key: &str,
     provider: &str,
     context: &AppContext,
+    tone: &ToneStyle,
+    vocab: &[String],
 ) -> Result<String, String> {
     if raw.trim().is_empty() {
         return Ok(String::new());
     }
     match provider {
-        "gemini" => cleanup_gemini(raw, gemini_key, context).await,
-        _        => cleanup_anthropic(raw, anthropic_key, context).await,
+        "gemini" => cleanup_gemini(raw, gemini_key, context, tone, vocab).await,
+        _        => cleanup_anthropic(raw, anthropic_key, context, tone, vocab).await,
     }
 }
 
@@ -129,11 +156,13 @@ async fn cleanup_anthropic(
     raw: &str,
     api_key: &str,
     context: &AppContext,
+    tone: &ToneStyle,
+    vocab: &[String],
 ) -> Result<String, String> {
     let body = json!({
         "model": "claude-haiku-4-5",
         "max_tokens": 1024,
-        "system": system_prompt(context),
+        "system": system_prompt(context, tone, vocab),
         "messages": [{"role": "user", "content": format!("Transcript:\n{raw}")}]
     });
     let json = checked_json(
@@ -158,9 +187,11 @@ async fn cleanup_gemini(
     raw: &str,
     gemini_key: &str,
     context: &AppContext,
+    tone: &ToneStyle,
+    vocab: &[String],
 ) -> Result<String, String> {
     let body = json!({
-        "system_instruction": {"parts": [{"text": system_prompt(context)}]},
+        "system_instruction": {"parts": [{"text": system_prompt(context, tone, vocab)}]},
         "contents": [{"role": "user", "parts": [{"text": format!("Transcript:\n{raw}")}]}]
     });
     let url = format!(

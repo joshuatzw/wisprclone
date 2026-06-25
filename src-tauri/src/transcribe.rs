@@ -12,17 +12,23 @@ async fn checked_json(
     response.json().await.map_err(|e| e.to_string())
 }
 
-fn dictation_prompt(language: &str) -> String {
+fn dictation_prompt(language: &str, vocab: &[String]) -> String {
     let language_note = if !language.is_empty() && language != "auto" {
         format!(" The speech language is {language}.")
     } else {
         String::new()
     };
 
+    let vocab_note = if vocab.is_empty() {
+        String::new()
+    } else {
+        format!(" Known user vocabulary: {}.", vocab.join(", "))
+    };
+
     format!(
         "This is push-to-talk dictation from a desktop microphone. Transcribe only the words \
          actually spoken. Preserve technical terms, product names, punctuation words, numbers, \
-         acronyms, and brief pauses as accurately as possible.{language_note}"
+         acronyms, and brief pauses as accurately as possible.{language_note}{vocab_note}"
     )
 }
 
@@ -33,9 +39,10 @@ pub async fn transcribe(
     gemini_key: &str,
     provider: &str,
     language: &str,
+    vocab: &[String],
 ) -> Result<String, String> {
     match provider {
-        "gemini" => transcribe_gemini(wav_path, gemini_key, language).await,
+        "gemini" => transcribe_gemini(wav_path, gemini_key, language, vocab).await,
         "groq" if !groq_key.is_empty() => {
             transcribe_whisper(
                 wav_path,
@@ -43,7 +50,7 @@ pub async fn transcribe(
                 "https://api.groq.com/openai/v1/audio/transcriptions",
                 "whisper-large-v3-turbo",
                 language,
-                None,
+                Some(dictation_prompt(language, vocab)),
             )
             .await
         }
@@ -54,7 +61,7 @@ pub async fn transcribe(
                 "https://api.openai.com/v1/audio/transcriptions",
                 "gpt-4o-transcribe",
                 language,
-                Some(dictation_prompt(language)),
+                Some(dictation_prompt(language, vocab)),
             )
             .await
         }
@@ -107,6 +114,7 @@ async fn transcribe_gemini(
     wav_path: &std::path::Path,
     gemini_key: &str,
     language: &str,
+    vocab: &[String],
 ) -> Result<String, String> {
     let audio_b64 = base64::engine::general_purpose::STANDARD
         .encode(std::fs::read(wav_path).map_err(|e| e.to_string())?);
@@ -117,13 +125,19 @@ async fn transcribe_gemini(
         String::new()
     };
 
+    let vocab_hint = if vocab.is_empty() {
+        String::new()
+    } else {
+        format!(" Known user vocabulary: {}.", vocab.join(", "))
+    };
+
     let body = serde_json::json!({
         "contents": [{
             "parts": [
                 {"inline_data": {"mime_type": "audio/wav", "data": audio_b64}},
                 {"text": format!(
                     "Transcribe this audio exactly as spoken. Output only the transcription — \
-                     no commentary, no timestamps, no speaker labels.{lang_hint}"
+                     no commentary, no timestamps, no speaker labels.{lang_hint}{vocab_hint}"
                 )}
             ]
         }]
