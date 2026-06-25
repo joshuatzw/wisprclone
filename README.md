@@ -8,14 +8,25 @@ A push-to-talk voice-to-text desktop app for Windows. Hold a hotkey, speak natur
 
 - Push-to-talk recording with a configurable hotkey
 - Microphone selection — choose any input device or use the system default
-- Speech-to-text via **OpenAI Transcribe**, **Groq Whisper**, or **Gemini**
+- Speech-to-text via OpenAI Transcribe, Groq Whisper, or Gemini
 - Optional AI cleanup pass that removes filler words, fixes punctuation, and adapts output style to the focused app (code editor, chat, email, terminal)
 - Automatic context detection — detects VS Code, Slack, Outlook, terminals, and more
+- Vocabulary support — maintain a personal dictionary of names, technical terms, product names, acronyms, and other words you frequently use
+- Adaptive learning — correct transcripts in History and WisprClone will learn new words and phrases over time, automatically adding them to your personal vocabulary
+- Tone control — choose between Formal and Casual writing styles, affecting punctuation, capitalization, and overall transcript presentation
 - Audio ducking — lowers all system audio by 90% while you speak
 - Whisper boost — automatically amplifies quiet or whispered recordings before transcription
 - Transcription history with total word count
 - Light / Dark / Auto theme
 
+---
+## Vocabulary & Adaptive Learning
+
+WisprClone can maintain a personal vocabulary containing names, acronyms, technical terms, product names, and other words that are important to you.
+
+You can manually add entries to your vocabulary, or teach WisprClone automatically by correcting transcripts in the History tab. When a transcript is edited, WisprClone compares the original and corrected versions, identifies unfamiliar words and phrases, and adds them to your personal vocabulary for future transcriptions.
+
+Over time, this helps improve recognition accuracy for industry-specific terminology, unique names, and commonly used phrases.
 ---
 
 ## Setup
