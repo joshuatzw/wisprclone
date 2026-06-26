@@ -246,6 +246,36 @@ fn delete_vocab_word(state: tauri::State<AppState>, word: String) {
     vocabulary::save(&state.app_data_dir, &vocab);
 }
 
+#[derive(serde::Serialize)]
+struct CorrectionRule {
+    wrong: String,
+    correct: String,
+}
+
+#[tauri::command]
+fn get_corrections(state: tauri::State<AppState>) -> Vec<CorrectionRule> {
+    let corr = state.corrections.lock().unwrap();
+    let mut rules: Vec<CorrectionRule> = corr.rules.iter()
+        .map(|(w, c)| CorrectionRule { wrong: w.clone(), correct: c.clone() })
+        .collect();
+    rules.sort_by(|a, b| a.wrong.cmp(&b.wrong));
+    rules
+}
+
+#[tauri::command]
+fn add_correction(state: tauri::State<AppState>, wrong: String, correct: String) {
+    let mut corr = state.corrections.lock().unwrap();
+    corr.rules.insert(wrong.to_lowercase(), correct);
+    corrections::save(&state.app_data_dir, &corr);
+}
+
+#[tauri::command]
+fn delete_correction(state: tauri::State<AppState>, wrong: String) {
+    let mut corr = state.corrections.lock().unwrap();
+    corr.remove(&wrong);
+    corrections::save(&state.app_data_dir, &corr);
+}
+
 struct RecordingJob {
     openai_key: String,
     anthropic_key: String,
@@ -432,6 +462,9 @@ pub fn run() {
             get_vocabulary,
             add_vocab_word,
             delete_vocab_word,
+            get_corrections,
+            add_correction,
+            delete_correction,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

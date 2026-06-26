@@ -674,3 +674,64 @@ html.overlay-window #root {
   min-width: 24px;
   text-align: right;
 }
+
+/* ── Corrections panel ─────────────────────────────────── */
+
+.corr-add-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 6px;
+  width: 100%;
+  max-width: 400px;
+  margin-bottom: 16px;
+}
+
+.corr-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  max-width: 400px;
+  max-height: 280px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
+}
+
+.corr-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.corr-list::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  border-radius: 2px;
+}
+
+.corr-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+.corr-wrong {
+  flex: 1;
+  font-size: 0.875rem;
+  color: var(--text-sub);
+}
+
+.corr-arrow {
+  font-size: 0.75rem;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+.corr-correct {
+  flex: 1;
+  font-size: 0.875rem;
+  color: var(--text-btn);
+  font-weight: 500;
+}

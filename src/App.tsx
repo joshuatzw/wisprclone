@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Overlay } from "./Overlay";
 import { History } from "./History";
 import { Vocabulary } from "./Vocabulary";
+import { Corrections } from "./Corrections";
 import "./App.css";
 
 const WINDOW_LABEL = getCurrentWindow().label;
@@ -14,7 +15,7 @@ if (WINDOW_LABEL === "overlay") {
 }
 
 type RecordingState = "idle" | "recording" | "transcribing" | "cleaning";
-type Tab = "settings" | "history" | "vocabulary";
+type Tab = "settings" | "history" | "vocabulary" | "corrections";
 type SttProvider = "openai" | "groq" | "gemini";
 type CleanupSelection = "off" | "anthropic" | "gemini";
 type Theme = "light" | "dark" | "auto";
@@ -307,9 +308,17 @@ function SettingsApp() {
         >
           Vocabulary
         </button>
+        <button
+          className={`tab-btn ${tab === "corrections" ? "active" : ""}`}
+          onClick={() => setTab("corrections")}
+        >
+          Corrections
+        </button>
       </div>
 
-      {tab === "vocabulary" ? (
+      {tab === "corrections" ? (
+        <Corrections />
+      ) : tab === "vocabulary" ? (
         <Vocabulary />
       ) : tab === "settings" ? (
         <>
